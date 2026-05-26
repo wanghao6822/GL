@@ -5,7 +5,7 @@
 #include <IPAddress.h>
 #include "myShowMsg.h"
 
-#define MaxModbusRegNum 29 // 最大寄存器数量（0~28，含硅链控制寄存器）
+#define MaxModbusRegNum 30 // 最大寄存器数量（0~29，含硅链控制寄存器）
 #define Version 40501      // 固件版本号,一位年尾号+2位月份+2位日
 
 /**
@@ -56,10 +56,11 @@ struct Parameter_Config
     uint16_t ControlMode;    // 控制模式：0=自动，1=手动
     uint16_t HM_Calibration; // HM降压系数×100，默认9900(99.00)
     uint16_t KM_Calibration; // KM降压系数×100，默认9900(99.00)
+    uint16_t MaxDropVoltage; // 硅链最大压降×100，默认3500(35V→220V)，110V系统设为2100
     uint8_t  CurrentGear;    // 当前档位0~6，掉电记忆
 
     Parameter_Config() : InitFlag(66), SlaveId(1), Baudrate(115200), mac{0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56}, ip{192, 168, 1, 168}, Input_Filter_Time(5),
-                         TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), ControlMode(0), HM_Calibration(9900), KM_Calibration(9900), CurrentGear(0) {}
+                         TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), ControlMode(0), HM_Calibration(9900), KM_Calibration(9900), MaxDropVoltage(3500), CurrentGear(0) {}
 };
 
 // 全局变量，保存参数配置

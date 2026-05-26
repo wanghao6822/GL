@@ -155,6 +155,7 @@ void Load_ParameterTORegister(void)
     myModbusRTU.setHreg(26, myPar.DeadBandUpper);
     myModbusRTU.setHreg(27, myPar.DeadBandLower);
     myModbusRTU.setHreg(28, myPar.ControlMode);
+    myModbusRTU.setHreg(29, myPar.MaxDropVoltage);
 }
 /**
  * @brief 将MB寄存器参数保存到参数变量中,同时保存到EEPROM
@@ -181,6 +182,7 @@ void Save_ParameterFromRegister()
     myPar.DeadBandUpper = myModbusRTU.hreg(26);
     myPar.DeadBandLower = myModbusRTU.hreg(27);
     myPar.ControlMode = myModbusRTU.hreg(28);
+    myPar.MaxDropVoltage = myModbusRTU.hreg(29);
     Save_Parameter();
 }
 
@@ -297,19 +299,15 @@ void MainTask(void *pvParameters)
                 if (deviation > (int32_t)myPar.DeadBandUpper) // KM偏低→升档(减小降压)
                 {
                     uint8_t steps = deviation / myPar.StepVoltage;
-                    if (steps > 0)
-                    {
-                        uint8_t newGear = myPar.CurrentGear + steps;
-                        myPar.CurrentGear = (newGear > 6) ? 6 : newGear;
-                    }
+                    if (steps == 0) steps = 1; // 至少调1档，防止偏差超过死区但不足1档压降时卡住
+                    uint16_t newGear = (uint16_t)myPar.CurrentGear + steps;
+                    myPar.CurrentGear = (newGear > 6) ? 6 : (uint8_t)newGear;
                 }
                 else if (-deviation > (int32_t)myPar.DeadBandLower) // KM偏高→降档(增大降压)
                 {
                     uint8_t steps = (-deviation) / myPar.StepVoltage;
-                    if (steps > 0)
-                    {
-                        myPar.CurrentGear = (myPar.CurrentGear < steps) ? 0 : (myPar.CurrentGear - steps);
-                    }
+                    if (steps == 0) steps = 1; // 至少调1档
+                    myPar.CurrentGear = (myPar.CurrentGear < steps) ? 0 : (myPar.CurrentGear - steps);
                 }
 
                 SetGearOutput(myPar.CurrentGear);
@@ -347,8 +345,8 @@ void MainTask(void *pvParameters)
             }
             else { alarmUnderTime = 0; }
 
-            // 压差异常：HM - KM > 硅链最大降压35V
-            if (diffVoltage > 3500)
+            // 压差异常：HM - KM > 硅链最大降压
+            if (diffVoltage > (int32_t)myPar.MaxDropVoltage)
             {
                 if (alarmDiffTime == 0) alarmDiffTime = now;
                 else if (now - alarmDiffTime >= 5000) alarmDiff = true;
