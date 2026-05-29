@@ -5,7 +5,7 @@
 #include <STM32FreeRTOS.h>
 
 // 使用串口输出信息，若不适用则注释掉
-//#define UseSerialPrint
+#define UseSerialPrint
 
 #ifdef UseSerialPrint
 // 创建一个互斥锁，避免串口输出时串口输出互相干扰
