@@ -271,18 +271,15 @@ void MainTask(void *pvParameters)
         if (myModbusRTU.hreg(12) != Output_Temp)
         {
             Output_Temp = myModbusRTU.hreg(12);
-            if (myPar.ControlMode == 0) // 自动模式：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
+            if (!Input.X0) // 自动模式(X0=高电平)：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
             {
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
-            else // 手动模式：全部由寄存器12控制
+            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序不干涉
             {
                 digitalWrite(Output_Y0, (Output_Temp & 0x01) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
-                digitalWrite(Output_Y2, (Output_Temp & 0x04) > 0 ? LOW : HIGH);
-                digitalWrite(Output_Y3, (Output_Temp & 0x08) > 0 ? LOW : HIGH);
-                digitalWrite(Output_Y4, (Output_Temp & 0x10) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
         }
@@ -298,7 +295,7 @@ void MainTask(void *pvParameters)
             uint16_t hmVoltage = myModbusRTU.hreg(20); // HM实际电压(×100)
             uint16_t kmVoltage = myModbusRTU.hreg(21); // KM实际电压(×100)
 
-            if (myPar.ControlMode == 0) // 自动模式
+            if (!Input.X0) // 自动模式(X0=高电平)
             {
                 int32_t deviation = (int32_t)myPar.TargetVoltage - (int32_t)kmVoltage;
 
@@ -319,16 +316,19 @@ void MainTask(void *pvParameters)
                 SetGearOutput(myPar.CurrentGear);
                 myModbusRTU.setHreg(22, myPar.CurrentGear);
             }
-            else // 手动模式
+            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序脱机
             {
+                // 仅读取当前档位上报，不写继电器
                 uint8_t manualGear = RelayToGear(
                     (myModbusRTU.hreg(12) >> 2) & 0x01,
                     (myModbusRTU.hreg(12) >> 3) & 0x01,
                     (myModbusRTU.hreg(12) >> 4) & 0x01);
                 myPar.CurrentGear = manualGear;
-                SetGearOutput(manualGear);
                 myModbusRTU.setHreg(22, manualGear);
             }
+
+            // 寄存器28同步X0引脚实际模式
+            myModbusRTU.setHreg(28, Input.X0 ? 1 : 0);
 
             // ===== 报警检测（5s消抖） =====
             int32_t diffVoltage = (int32_t)hmVoltage - (int32_t)kmVoltage;
