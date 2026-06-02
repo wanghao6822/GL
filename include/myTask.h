@@ -160,7 +160,6 @@ void Load_ParameterTORegister(void)
     myModbusRTU.setHreg(25, myPar.StepVoltage);
     myModbusRTU.setHreg(26, myPar.DeadBandUpper);
     myModbusRTU.setHreg(27, myPar.DeadBandLower);
-    myModbusRTU.setHreg(28, myPar.ControlMode);
     myModbusRTU.setHreg(29, myPar.MaxDropVoltage);
 }
 /**
@@ -187,7 +186,6 @@ void Save_ParameterFromRegister()
     myPar.StepVoltage = myModbusRTU.hreg(25);
     myPar.DeadBandUpper = myModbusRTU.hreg(26);
     myPar.DeadBandLower = myModbusRTU.hreg(27);
-    myPar.ControlMode = myModbusRTU.hreg(28);
     myPar.MaxDropVoltage = myModbusRTU.hreg(29);
     Save_Parameter();
 }
@@ -276,9 +274,8 @@ void MainTask(void *pvParameters)
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
-            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序不干涉
+            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, Y0由报警逻辑统一接管
             {
-                digitalWrite(Output_Y0, (Output_Temp & 0x01) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
@@ -316,16 +313,7 @@ void MainTask(void *pvParameters)
                 SetGearOutput(myPar.CurrentGear);
                 myModbusRTU.setHreg(22, myPar.CurrentGear);
             }
-            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序脱机
-            {
-                // 仅读取当前档位上报，不写继电器
-                uint8_t manualGear = RelayToGear(
-                    (myModbusRTU.hreg(12) >> 2) & 0x01,
-                    (myModbusRTU.hreg(12) >> 3) & 0x01,
-                    (myModbusRTU.hreg(12) >> 4) & 0x01);
-                myPar.CurrentGear = manualGear;
-                myModbusRTU.setHreg(22, manualGear);
-            }
+            // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序不读档位不写继电器
 
             // 寄存器28同步X0引脚实际模式
             myModbusRTU.setHreg(28, Input.X0 ? 1 : 0);
