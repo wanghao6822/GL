@@ -76,9 +76,9 @@ AnalogStruct myAI;
 /*********硅链调压控制*********/
 #define AlarmOutPin Output_Y0 // 报警输出引脚 Y0(PA15)
 
-// 3继电器→7档位编码表：{Y2, Y3, Y4}，1=导通(LOW)
-// 档位0降压最大(35V)，档位6降压最小(5V)
-const uint8_t GearRelayTable[7][3] = {
+// 3继电器→8档位编码表：{Y2, Y3, Y4}，1=导通(LOW)
+// 档位0降压最大(35V)，档位7降压最小(0V=直通)
+const uint8_t GearRelayTable[8][3] = {
     {0, 0, 0}, // 档位0: 降压35V(220V系统) / 21V(110V系统)
     {1, 0, 0}, // 档位1: 降压30V / 18V
     {0, 1, 0}, // 档位2: 降压25V / 15V
@@ -86,12 +86,13 @@ const uint8_t GearRelayTable[7][3] = {
     {0, 0, 1}, // 档位4: 降压15V / 9V
     {1, 0, 1}, // 档位5: 降压10V / 6V
     {0, 1, 1}, // 档位6: 降压5V  / 3V
+    {1, 1, 1}, // 档位7: 降压0V  / 0V (直通)
 };
 
 // 根据3个继电器的状态反推档位（用于手动模式读取）
 uint8_t RelayToGear(uint8_t y2, uint8_t y3, uint8_t y4)
 {
-    for (uint8_t i = 0; i < 7; i++)
+    for (uint8_t i = 0; i < 8; i++)
         if (GearRelayTable[i][0] == y2 && GearRelayTable[i][1] == y3 && GearRelayTable[i][2] == y4)
             return i;
     return 0;
@@ -100,7 +101,7 @@ uint8_t RelayToGear(uint8_t y2, uint8_t y3, uint8_t y4)
 // 根据档位写继电器输出
 void SetGearOutput(uint8_t gear)
 {
-    if (gear > 6) gear = 6;
+    if (gear > 7) gear = 7;
     digitalWrite(Output_Y2, GearRelayTable[gear][0] ? LOW : HIGH);
     digitalWrite(Output_Y3, GearRelayTable[gear][1] ? LOW : HIGH);
     digitalWrite(Output_Y4, GearRelayTable[gear][2] ? LOW : HIGH);

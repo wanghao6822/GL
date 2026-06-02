@@ -33,7 +33,7 @@ void ModbusRTU_Initialize()
   myModbusRTU.config(myPar.Baudrate);         // ModbusRTU开始，需要依靠串口来工作
   mbSerial.begin(myPar.Baudrate, SERIAL_8N1); // 串口开始工作
   // ModbusRTU的保持寄存器配置
-  for (int i = 0; i < MaxModbusRegNum; i++) // 添加20个保持寄存器
+  for (int i = 0; i < MaxModbusRegNum; i++) // 添加保持寄存器
   {
     // myModbusRTU.addCoil(i, true); // 添加输出线圈
     // myModbusRTU.addIsts(i, true); // 添加离散输入

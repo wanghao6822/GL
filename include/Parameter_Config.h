@@ -39,9 +39,10 @@ enum ParameterOption
  */
 struct Parameter_Config
 {
-    uint8_t InitFlag;  // 初始标志，用于判断是否是第一次启动，如果是第一次启动，则需要恢复出厂设置，否则加载参数配置
-    uint8_t SlaveId;   // 站号,默认站号1,如果需要波特率可配置，可将该参数设定成变量，在串口初始化之前设置
-    uint32_t Baudrate; // 波特率,默认波特率115200,如果需要波特率可配置，可将该参数设定成变量，在串口初始化之前设置
+    uint8_t InitFlag;       // 初始标志，66=已初始化
+    uint8_t SlaveId;        // 站号,默认站号1
+    uint32_t Baudrate;      // 波特率,默认波特率115200
+    uint16_t ConfigVersion; // 结构体版本号，变更时递增，用于检测EEPROM数据兼容性
 
     byte mac[6];  // MAC地址，默认MAC地址由MCU唯一标识符生成后4个字节，如果需要MAC地址可配置，可将该参数设定成变量，在网络初始化之前设置
     IPAddress ip; // IP地址,默认IP地址192.168.1.168,如果需要IP地址可配置，可将该参数设定成变量，在网络初始化之前设置
@@ -57,9 +58,9 @@ struct Parameter_Config
     uint16_t HM_Calibration; // HM降压系数×100，默认9900(99.00)
     uint16_t KM_Calibration; // KM降压系数×100，默认9900(99.00)
     uint16_t MaxDropVoltage; // 硅链最大压降×100，默认3500(35V→220V)，110V系统设为2100
-    uint8_t  CurrentGear;    // 当前档位0~6，掉电记忆
+    uint8_t  CurrentGear;    // 当前档位0~7，掉电记忆
 
-    Parameter_Config() : InitFlag(66), SlaveId(1), Baudrate(115200), mac{0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56}, ip{192, 168, 1, 168}, Input_Filter_Time(5),
+    Parameter_Config() : InitFlag(66), SlaveId(1), Baudrate(115200), ConfigVersion(1), mac{0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56}, ip{192, 168, 1, 168}, Input_Filter_Time(5),
                          TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), ControlMode(0), HM_Calibration(9900), KM_Calibration(9900), MaxDropVoltage(3500), CurrentGear(0) {}
 };
 
@@ -107,8 +108,9 @@ void Load_Parameter()
     uint32_t recordTime = millis();
     ShowMsg("Loading parameter", true);
     EEPROM.get(0, myPar);     // 从EEPROM中读取参数配置
-    if (myPar.InitFlag != 66) // 如果是第一次下载程序，myPar.InitFlag肯定不是66，则直接调用默认设置并保存到EEPROM，那么下次启动时，myPar.InitFlag肯定是66，则加载参数配置
+    if (myPar.InitFlag != 66 || myPar.ConfigVersion != 1) // InitFlag无效或结构体版本不匹配→恢复出厂
     {
+        ShowMsg("EEPROM version mismatch, reinit...", true);
         Parameter_Init();
     }
     ShowMsg("Parameter loaded：" + String(millis() - recordTime), true);

@@ -10,8 +10,8 @@
 // #include "myExternaIO.h"
 
 // 设定字中的位状态
-#define SET_BIT_BY_BOOL(uint16_t, bitIndex, value) \
-    ((value) ? ((uint16_t) |= (1 << (bitIndex))) : ((uint16_t) &= ~(1 << (bitIndex))))
+#define SET_BIT_BY_BOOL(reg, bitIndex, value) \
+    ((value) ? ((reg) |= (1 << (bitIndex))) : ((reg) &= ~(1 << (bitIndex))))
 
 // 定义是否开启任务堆栈剩余空间测试功能
 // #define TaskStackTestEnable 1
@@ -81,10 +81,9 @@ void TaskStackTest(void *pvParameters)
 }
 #endif
 
-// IIC任务,本打算用来读取ADS1115的数值，但总是无法正确读取，这里就先取消
-//  /**
-//   * @brief IIC任务
-//   */
+/**
+ * @brief IIC任务 — ADS1115 模拟量采集 + PCF8575 扩展IO（共用 I2C 总线）
+ */
 void IICTask(void *pvParameters)
 {
     uint8_t ADS1115InitCounter = 0; // ADS1115初始化计数器
@@ -116,16 +115,23 @@ void IICTask(void *pvParameters)
 
         if (millis() - delayTime > 1000) // 每隔1秒读取一次模拟量
         {
-            ShowMsg("Read ADS1115...");
-            ReadADS1115All(myAI.AI0, myAI.AI1, myAI.AI2, myAI.AI3); // 读取ADS1115的4个通道的模拟量,电压等于当前值当前值(Value*4.096/32767)*1.4545或者Value*0.0001818
+            ReadADS1115All(myAI.AI0, myAI.AI1, myAI.AI2, myAI.AI3);
             myModbusRTU.setHreg(15, myAI.AI0);
             myModbusRTU.setHreg(16, myAI.AI1);
             myModbusRTU.setHreg(17, myAI.AI2);
             myModbusRTU.setHreg(18, myAI.AI3);
 
             // 硅链：ADC原始值换算为实际电压（×100），写入寄存器20/21
-            myModbusRTU.setHreg(20, ADCToVoltage(myAI.AI0, myPar.HM_Calibration)); // HM实际电压
-            myModbusRTU.setHreg(21, ADCToVoltage(myAI.AI1, myPar.KM_Calibration)); // KM实际电压
+            uint16_t hmVoltage = ADCToVoltage(myAI.AI0, myPar.HM_Calibration);
+            uint16_t kmVoltage = ADCToVoltage(myAI.AI1, myPar.KM_Calibration);
+            myModbusRTU.setHreg(20, hmVoltage);
+            myModbusRTU.setHreg(21, kmVoltage);
+
+            // 实时打印采样值
+            ShowMsg("[AI] raw0=" + String(myAI.AI0) + " raw1=" + String(myAI.AI1) +
+                    " | HM=" + String(hmVoltage / 100) + "." + String(hmVoltage % 100 / 10) + String(hmVoltage % 10) +
+                    "V KM=" + String(kmVoltage / 100) + "." + String(kmVoltage % 100 / 10) + String(kmVoltage % 10) +
+                    "V | gear=" + String(myPar.CurrentGear), true);
             delayTime = millis();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -301,7 +307,7 @@ void MainTask(void *pvParameters)
                     uint8_t steps = deviation / myPar.StepVoltage;
                     if (steps == 0) steps = 1; // 至少调1档，防止偏差超过死区但不足1档压降时卡住
                     uint16_t newGear = (uint16_t)myPar.CurrentGear + steps;
-                    myPar.CurrentGear = (newGear > 6) ? 6 : (uint8_t)newGear;
+                    myPar.CurrentGear = (newGear > 7) ? 7 : (uint8_t)newGear;
                 }
                 else if (-deviation > (int32_t)myPar.DeadBandLower) // KM偏高→降档(增大降压)
                 {

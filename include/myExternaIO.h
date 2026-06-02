@@ -39,11 +39,8 @@ PCF8575 pcf8575(0x20);
  */
 bool ExternalIOInitialize(uint16_t mode = 0xFFFF)
 {
-
-    Wire.setSDA(PB9);
-    Wire.setSCL(PB8);
-    Wire.begin();               // 初始化Wire
-    return pcf8575.begin(mode); // 初始化PCF8575,设置高8位为输出，低8位为输入,对应bit为0为输出低电平，1为高电平或者输入
+    // Wire 由 IICTask 统一初始化，此处不再重复
+    return pcf8575.begin(mode); // 初始化PCF8575,设置高8位为输出，低8位为输入
 }
 /**
  * @brief 设置外部IO的模式,也可以在PDF8575.begin中就设置
@@ -110,9 +107,7 @@ void ExternalDigitalToggle(uint8_t pin)
  */
 void IICScan()
 {
-    Wire.setSDA(PB9);
-    Wire.setSCL(PB8);
-    Wire.begin(); // 初始化Wire
+    // Wire 由 IICTask 统一初始化，此处不再重复
     for (uint8_t i = 0; i < 127; i++)
     {
         Wire.beginTransmission(i);
