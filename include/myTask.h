@@ -367,90 +367,37 @@ void MainTask(void *pvParameters)
 }
 
 /**
- * @brief 任务初始化函数
- * @note 该函数在系统启动时调用，用来创建任务
- * @return void
+ * @brief 创建所有应用任务
+ * @note  xTaskCreate参数: (任务函数, 任务名, 堆栈大小(字), 参数, 优先级(0最低), 句柄)
+ *        优先级分配: 6=看门狗 5=输入滤波 4=Modbus 3=主逻辑
  */
 void CreateTaskMethods(void *pvParameters)
 {
-    xTaskCreate(WatchdogTask,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "WatchdogTask", // 这个任务的名字，主要用来调试
-                96,             // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,           // 传递给任务函数的参数
-                6,              // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL            // 用于存储创建的任务句柄的指针
-    );
+    xTaskCreate(WatchdogTask, "WatchdogTask", 96, NULL, 6, NULL);
     ShowMsg("Watchdog task created.", true);
 
-    xTaskCreate(X_filter,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "X_filter", // 这个任务的名字，主要用来调试
-                96,         // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,       // 传递给任务函数的参数
-                5,          // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL        // 用于存储创建的任务句柄的指针
-    );                      // 测试堆栈96还剩余66字节
+    xTaskCreate(X_filter, "X_filter", 96, NULL, 5, NULL);  // 堆栈剩余66字节
     ShowMsg("Input filter task created.", true);
 
-    xTaskCreate(ModbusRTUTask,     // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "ModbusRTUSevice", // 这个任务的名字，主要用来调试
-                128,               // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,              // 传递给任务函数的参数
-                4,                 // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL               // 用于存储创建的任务句柄的指针
-    );                             // 测试堆栈128还剩余70字节
+    xTaskCreate(ModbusRTUTask, "ModbusRTUSevice", 128, NULL, 4, NULL);  // 堆栈剩余70字节
     ShowMsg("ModbusRTU task created.", true);
 
-    xTaskCreate(ModbusTCPTask,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "ModbusTCPTask", // 这个任务的名字，主要用来调试
-                128 * 2,         // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,            // 传递给任务函数的参数
-                4,               // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL             // 用于存储创建的任务句柄的指针
-    );                           // 测试堆栈128*2还剩余148字节
+    xTaskCreate(ModbusTCPTask, "ModbusTCPTask", 128 * 2, NULL, 4, NULL);  // 堆栈剩余148字节
     ShowMsg("ModbusTCP task created.", true);
 
-    // xTaskCreate(ModbusTASK,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-    //             "ModbusTASK", // 这个任务的名字，主要用来调试
-    //             128 * 3,         // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-    //             NULL,            // 传递给任务函数的参数
-    //             2,               // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-    //             NULL              // 用于存储创建的任务句柄的指针
-    // );//测试堆栈128*3还剩余276字节
-    // ShowMsg("Modbus task created.", true);
-
-    xTaskCreate(IICTask,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "IICTask", // 这个任务的名字，主要用来调试
-                128 * 3,   // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,      // 传递给任务函数的参数
-                3,         // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL       // 用于存储创建的任务句柄的指针
-    );                     // 测试堆栈128*3还剩余186字节
+    xTaskCreate(IICTask, "IICTask", 128 * 3, NULL, 3, NULL);  // 堆栈剩余186字节
     ShowMsg("IIC task created.", true);
 
-    xTaskCreate(MainTask,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "MainTask", // 这个任务的名字，主要用来调试
-                128 * 2,    // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,       // 传递给任务函数的参数
-                3,          // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL        // 用于存储创建的任务句柄的指针
-    );                      // 测试堆栈128*2还剩余233字节
+    xTaskCreate(MainTask, "MainTask", 128 * 2, NULL, 3, NULL);  // 堆栈剩余233字节
     ShowMsg("MainTask created.", true);
 
 #ifdef TaskStackTestEnable
-    // 创建任务测试函数
-    xTaskCreate(TaskStackTest,   // 任务函数的指针，用来调用执行的函数，主要该函数内部必须一直循环，否则会触发看门狗定时器
-                "TaskStackTest", // 这个任务的名字，主要用来调试
-                128 * 2,         // 任务的堆栈大小,单位为字，这里分配了128个字堆栈(这个堆栈大小可以通过读取堆栈高水位来检查和调整)
-                NULL,            // 传递给任务函数的参数
-                2,               // 任务的优先级(优先级，3 (configMAX_PRIORITIES - 1)是最高的，0是最低的。)
-                NULL             // 用于存储创建的任务句柄的指针
-    );
+    xTaskCreate(TaskStackTest, "TaskStackTest", 128 * 2, NULL, 2, NULL);
     ShowMsg("TaskStackTest created.", true);
 #endif
 
     ShowMsg("All Task Create Success", true);
     ShowMsg("", true);
-    // 删除当前任务
     vTaskDelete(NULL);
 }
 #endif
