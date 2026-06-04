@@ -160,6 +160,7 @@ void Load_ParameterTORegister(void)
     myModbusRTU.setHreg(25, myPar.StepVoltage);
     myModbusRTU.setHreg(26, myPar.DeadBandUpper);
     myModbusRTU.setHreg(27, myPar.DeadBandLower);
+    myModbusRTU.setHreg(28, myPar.ControlMode);
     myModbusRTU.setHreg(29, myPar.MaxDropVoltage);
 }
 /**
@@ -181,12 +182,13 @@ void Save_ParameterFromRegister()
     myPar.ip[2] = (myModbusRTU.hreg(8) >> 8) & 0xFF;
     myPar.ip[3] = myModbusRTU.hreg(8) & 0xFF;
 
-    // 硅链调压参数保存
-    myPar.TargetVoltage = myModbusRTU.hreg(24);
-    myPar.StepVoltage = myModbusRTU.hreg(25);
-    myPar.DeadBandUpper = myModbusRTU.hreg(26);
-    myPar.DeadBandLower = myModbusRTU.hreg(27);
-    myPar.MaxDropVoltage = myModbusRTU.hreg(29);
+    // 硅链调压参数：从寄存器回读并保存到EEPROM
+    myPar.TargetVoltage  = myModbusRTU.hreg(24); // 目标电压×100
+    myPar.StepVoltage    = myModbusRTU.hreg(25); // 每档压降×100
+    myPar.DeadBandUpper  = myModbusRTU.hreg(26); // 死区上限×100
+    myPar.DeadBandLower  = myModbusRTU.hreg(27); // 死区下限×100
+    myPar.ControlMode    = myModbusRTU.hreg(28); // 0=自动, 1=手动
+    myPar.MaxDropVoltage = myModbusRTU.hreg(29); // 最大压降×100
     Save_Parameter();
 }
 
@@ -246,9 +248,6 @@ void MainTask(void *pvParameters)
                 Parameter_Init();   // 重置参数
                 NVIC_SystemReset(); // 重启系统
             }
-            else
-            {
-            }
             Param_Temp = 0;
         }
 
@@ -269,14 +268,17 @@ void MainTask(void *pvParameters)
         if (myModbusRTU.hreg(12) != Output_Temp)
         {
             Output_Temp = myModbusRTU.hreg(12);
-            if (!Input.X0) // 自动模式(X0=高电平)：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
+            if (myModbusRTU.hreg(28) == 0) // 自动模式(寄存器28=0)：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
             {
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
-            else // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, Y0由报警逻辑统一接管
+            else // 手动模式(寄存器28=1)：Y2-Y5由上位机通过寄存器12控制，Y0=报警
             {
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
+                digitalWrite(Output_Y2, (Output_Temp & 0x04) > 0 ? LOW : HIGH);
+                digitalWrite(Output_Y3, (Output_Temp & 0x08) > 0 ? LOW : HIGH);
+                digitalWrite(Output_Y4, (Output_Temp & 0x10) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
         }
@@ -292,31 +294,34 @@ void MainTask(void *pvParameters)
             uint16_t hmVoltage = myModbusRTU.hreg(20); // HM实际电压(×100)
             uint16_t kmVoltage = myModbusRTU.hreg(21); // KM实际电压(×100)
 
-            if (!Input.X0) // 自动模式(X0=高电平)
+            if (myModbusRTU.hreg(28) == 0) // 自动模式：硅链自动调压
             {
                 int32_t deviation = (int32_t)myPar.TargetVoltage - (int32_t)kmVoltage;
 
                 if (deviation > (int32_t)myPar.DeadBandUpper) // KM偏低→升档(减小降压)
                 {
                     uint8_t steps = deviation / myPar.StepVoltage;
-                    if (steps == 0) steps = 1; // 至少调1档，防止偏差超过死区但不足1档压降时卡住
+                    if (steps == 0) steps = 1;
                     uint16_t newGear = (uint16_t)myPar.CurrentGear + steps;
                     myPar.CurrentGear = (newGear > 7) ? 7 : (uint8_t)newGear;
                 }
                 else if (-deviation > (int32_t)myPar.DeadBandLower) // KM偏高→降档(增大降压)
                 {
                     uint8_t steps = (-deviation) / myPar.StepVoltage;
-                    if (steps == 0) steps = 1; // 至少调1档
+                    if (steps == 0) steps = 1;
                     myPar.CurrentGear = (myPar.CurrentGear < steps) ? 0 : (myPar.CurrentGear - steps);
                 }
 
                 SetGearOutput(myPar.CurrentGear);
                 myModbusRTU.setHreg(22, myPar.CurrentGear);
             }
-            // 手动模式(X0=低电平)：Y2/Y3/Y4由外部转换开关控制, 程序不读档位不写继电器
-
-            // 寄存器28同步X0引脚实际模式
-            myModbusRTU.setHreg(28, Input.X0 ? 1 : 0);
+            else // 手动模式：硅链继电器由上位机控（输出刷新段处理），仅反算档位供显示
+            {
+                myModbusRTU.setHreg(22, RelayToGear(
+                    (Output_Temp >> 2) & 1,
+                    (Output_Temp >> 3) & 1,
+                    (Output_Temp >> 4) & 1));
+            }
 
             // ===== 报警检测（5s消抖） =====
             int32_t diffVoltage = (int32_t)hmVoltage - (int32_t)kmVoltage;

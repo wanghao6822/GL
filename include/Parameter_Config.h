@@ -6,7 +6,7 @@
 #include "myShowMsg.h"
 
 #define MaxModbusRegNum 30 // 最大寄存器数量（0~29，含硅链控制寄存器）
-#define Version 40501      // 固件版本号,一位年尾号+2位月份+2位日
+#define Version 260604     // 固件版本号,2位年+2位月份+2位日
 
 /**
  * @brief 获取MCU唯一标识符，MCUID由一个96位的唯一标识符组成，通过读取MCU的唯一标识符，可以唯一标识该MCU
@@ -57,10 +57,11 @@ struct Parameter_Config
     uint16_t HM_Calibration; // HM降压系数×100，默认9900(99.00)
     uint16_t KM_Calibration; // KM降压系数×100，默认9900(99.00)
     uint16_t MaxDropVoltage; // 硅链最大压降×100，默认3500(35V→220V)，110V系统设为2100
+    uint16_t ControlMode;   // 控制模式 0=自动调压, 1=手动控制，掉电记忆
     uint8_t  CurrentGear;    // 当前档位0~7，掉电记忆
 
     Parameter_Config() : InitFlag(66), SlaveId(1), Baudrate(115200), ConfigVersion(2), mac{0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56}, ip{192, 168, 1, 168}, Input_Filter_Time(5),
-                         TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), HM_Calibration(9900), KM_Calibration(9900), MaxDropVoltage(3500), CurrentGear(0) {}
+                         TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), HM_Calibration(9900), KM_Calibration(9900), MaxDropVoltage(3500), ControlMode(0), CurrentGear(0) {}
 };
 
 // 全局变量，保存参数配置
@@ -107,7 +108,7 @@ void Load_Parameter()
     uint32_t recordTime = millis();
     ShowMsg("Loading parameter", true);
     EEPROM.get(0, myPar);     // 从EEPROM中读取参数配置
-    if (myPar.InitFlag != 66 || myPar.ConfigVersion != 1) // InitFlag无效或结构体版本不匹配→恢复出厂
+    if (myPar.InitFlag != 66 || myPar.ConfigVersion != 2) // InitFlag无效或结构体版本不匹配→恢复出厂
     {
         ShowMsg("EEPROM version mismatch, reinit...", true);
         Parameter_Init();

@@ -76,17 +76,17 @@ AnalogStruct myAI;
 /*********硅链调压控制*********/
 #define AlarmOutPin Output_Y0 // 报警输出引脚 Y0(PA15)
 
-// 3继电器→8档位编码表：{Y2, Y3, Y4}，1=导通(LOW)
-// 档位0降压最大(35V)，档位7降压最小(0V=直通)
+// 3继电器→8档位编码表：{Y2, Y3, Y4}，1=导通(LOW)，0=断开
+// G0降压最大(35V)→G7直通(0V)，每档5V
 const uint8_t GearRelayTable[8][3] = {
-    {0, 0, 0}, // 档位0: 降压35V(220V系统) / 21V(110V系统)
-    {1, 0, 0}, // 档位1: 降压30V / 18V
-    {0, 1, 0}, // 档位2: 降压25V / 15V
-    {1, 1, 0}, // 档位3: 降压20V / 12V
-    {0, 0, 1}, // 档位4: 降压15V / 9V
-    {1, 0, 1}, // 档位5: 降压10V / 6V
-    {0, 1, 1}, // 档位6: 降压5V  / 3V
-    {1, 1, 1}, // 档位7: 降压0V  / 0V (直通)
+    {0, 0, 0}, // G0: 降压35V
+    {1, 0, 0}, // G1: 降压30V
+    {0, 1, 0}, // G2: 降压25V
+    {1, 1, 0}, // G3: 降压20V
+    {0, 0, 1}, // G4: 降压15V
+    {1, 0, 1}, // G5: 降压10V
+    {0, 1, 1}, // G6: 降压5V
+    {1, 1, 1}, // G7: 直通(0V)
 };
 
 // 根据3个继电器的状态反推档位（用于手动模式读取）
@@ -137,15 +137,15 @@ void GPIO_Init()
     pinMode(SW_B3, INPUT_PULLUP);
     pinMode(SW_B4, INPUT_PULLUP);
     pinMode(SW_B5, INPUT_PULLUP);
-    /*输入引脚初始化*/
-    pinMode(Temp_X0, INPUT);
-    pinMode(Temp_X1, INPUT);
-    pinMode(Temp_X2, INPUT);
-    pinMode(Temp_X3, INPUT);
-    pinMode(Temp_X4, INPUT);
-    pinMode(Temp_X5, INPUT);
-    pinMode(Temp_X6, INPUT);
-    pinMode(Temp_X7, INPUT);
+    /*输入引脚初始化（内部上拉，防止浮空受邻近引脚串扰）*/
+    pinMode(Temp_X0, INPUT_PULLUP);
+    pinMode(Temp_X1, INPUT_PULLUP);
+    pinMode(Temp_X2, INPUT_PULLUP);
+    pinMode(Temp_X3, INPUT_PULLUP);
+    pinMode(Temp_X4, INPUT_PULLUP);
+    pinMode(Temp_X5, INPUT_PULLUP);
+    pinMode(Temp_X6, INPUT_PULLUP);
+    pinMode(Temp_X7, INPUT_PULLUP);
     /*输出引脚初始化*/
     pinMode_OutSetting(Output_Y0);
     pinMode_OutSetting(Output_Y1);
@@ -205,7 +205,6 @@ void X_filter(void *pvParameters) // 每1MS调用一次，用来给输入滤波,
             (digitalRead(Temp_X6)) ? (x_buffer[6] = 0, Input.X6 = 0) : ((x_buffer[6] < myPar.Input_Filter_Time) ? (x_buffer[6]++) : (Input.X6 = 1));
             (digitalRead(Temp_X7)) ? (x_buffer[7] = 0, Input.X7 = 0) : ((x_buffer[7] < myPar.Input_Filter_Time) ? (x_buffer[7]++) : (Input.X7 = 1));
         }
-        // SetOut(OutputEnum::Test,static_cast<OutState>(!digitalRead(OutputEnum::Test)));
     }
 }
 
