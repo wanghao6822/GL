@@ -13,7 +13,7 @@
  * @param offsetIndex 偏移索引，用于获取不同MCU的唯一标识符，默认0,范围0-3
  * @return MCU唯一标识符
  */
-uint32_t GetMCUId(uint8_t offsetIndex = 0)
+static uint32_t GetMCUId(uint8_t offsetIndex = 0)
 {
     offsetIndex > 3 ? offsetIndex = 3 : 0;
     return *(uint32_t *)(0x1FFFF7E8 + (offsetIndex * 4));
@@ -72,7 +72,7 @@ Parameter_Config myPar = Parameter_Config();
  *
  * 保存参数配置到EEPROM
  */
-void Save_Parameter()
+static void Save_Parameter()
 {
     uint32_t recordTime = millis();
     ShowMsg("Saving parameter", true);
@@ -83,7 +83,7 @@ void Save_Parameter()
 /**
  * @brief 参数初始化
  */
-void Parameter_Init()
+static void Parameter_Init()
 {
     ShowMsg("Initializing parameter", true);
     myPar = Parameter_Config();
@@ -103,7 +103,7 @@ void Parameter_Init()
  *
  * 从EEPROM中加载参数配置，如果是第一次下载程序，则恢复出厂设置
  */
-void Load_Parameter()
+static void Load_Parameter()
 {
     uint32_t recordTime = millis();
     ShowMsg("Loading parameter", true);

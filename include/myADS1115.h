@@ -29,7 +29,7 @@ ADS1115 ADS(0x48);
  * @brief 初始化ADS1115
  * @return 初始化成功返回true，失败返回false
 */
-bool InitializeADS1115()
+static bool InitializeADS1115()
 {
     // Wire.setSDA(PB9);   // 设置I2C的SDA和SCL引脚
     // Wire.setSCL(PB8);   // 设置I2C的SDA和SCL引脚
@@ -42,7 +42,7 @@ bool InitializeADS1115()
  * @param channel 通道号，0-3
  * @return 通道的模拟信号
 */
-float ReadADS1115(int channel)
+static float ReadADS1115(int channel)
 {
     int16_t val = ADS.readADC(channel);
     float f = ADS.toVoltage(1); //  voltage factor
@@ -56,7 +56,7 @@ float ReadADS1115(int channel)
  * @param val_2 通道2的模拟信号
  * @param val_3 通道3的模拟信号
 */
-void ReadADS1115All(int16_t &val_0, int16_t &val_1, int16_t &val_2, int16_t &val_3)
+static void ReadADS1115All(int16_t &val_0, int16_t &val_1, int16_t &val_2, int16_t &val_3)
 {
     val_0 = ADS.readADC(0);
     val_1 = ADS.readADC(1);
@@ -67,7 +67,7 @@ void ReadADS1115All(int16_t &val_0, int16_t &val_1, int16_t &val_2, int16_t &val
 /**
  * @brief 读取ADS1115的全部4个通道的模拟信号并打印
 */
-void ReadADS1115All()
+static void ReadADS1115All()
 {
     int16_t val_0 = ADS.readADC(0);
     int16_t val_1 = ADS.readADC(1);

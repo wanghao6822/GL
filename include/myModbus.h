@@ -26,7 +26,7 @@ ModbusSerial myModbusRTU(mbSerial, myPar.SlaveId, mbSendEnPin); // 声明一个M
 ModbusEthernet myModbusTCP; // 声明一个ModbusTCP实例
 
 /*ModbusRTU初始化*/
-void ModbusRTU_Initialize()
+static void ModbusRTU_Initialize()
 {
   ShowMsg("ModbusRTU initializing", true);
   myModbusRTU.setSlaveId(myPar.SlaveId);      // 设置站号
@@ -48,7 +48,7 @@ void ModbusRTU_Initialize()
 }
 
 /*modbusTCP初始化*/
-void ModbusTCP_Initialize()
+static void ModbusTCP_Initialize()
 {
   ShowMsg("ModbusTCP initializing", true);
   myModbusTCP.config(myPar.mac, myPar.ip); // 注意在ModbusEthernet.h中有一个#define TCP_KEEP_ALIVE，需要将保持连接打开，否则网络通信将自动断开
@@ -70,7 +70,7 @@ void ModbusTCP_Initialize()
 /**
  * ModbusRTU任务,在FreeRTOS中创建该任务
  */
-void ModbusRTUTask(void *pvParameters)
+static void ModbusRTUTask(void *pvParameters)
 {
   vTaskDelay(pdMS_TO_TICKS(100)); // 延时100ms再启动任务
   ShowMsg("ModbusRTU task started", true);
@@ -86,7 +86,7 @@ void ModbusRTUTask(void *pvParameters)
  * 注意：ModbusTCP的初始化需要在该任务中进行
  *
  */
-void ModbusTCPTask(void *pvParameters)
+static void ModbusTCPTask(void *pvParameters)
 {
   vTaskDelay(pdMS_TO_TICKS(100)); // 延时100ms再启动任务
   ShowMsg("ModbusTCP task started", true);

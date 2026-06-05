@@ -90,7 +90,7 @@ const uint8_t GearRelayTable[8][3] = {
 };
 
 // 根据3个继电器的状态反推档位（用于手动模式读取）
-uint8_t RelayToGear(uint8_t y2, uint8_t y3, uint8_t y4)
+static uint8_t RelayToGear(uint8_t y2, uint8_t y3, uint8_t y4)
 {
     for (uint8_t i = 0; i < 8; i++)
         if (GearRelayTable[i][0] == y2 && GearRelayTable[i][1] == y3 && GearRelayTable[i][2] == y4)
@@ -99,7 +99,7 @@ uint8_t RelayToGear(uint8_t y2, uint8_t y3, uint8_t y4)
 }
 
 // 根据档位写继电器输出
-void SetGearOutput(uint8_t gear)
+static void SetGearOutput(uint8_t gear)
 {
     if (gear > 7) gear = 7;
     digitalWrite(Output_Y2, GearRelayTable[gear][0] ? LOW : HIGH);
@@ -109,17 +109,18 @@ void SetGearOutput(uint8_t gear)
 
 // ADC原始值→实际电压（放大100倍存储）
 // calibration: 降压系数×100，如99.00→9900
-uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
+// 整数运算，避免Cortex-M3无FPU时软浮点开销
+static uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
 {
-    // V_actual = adcValue × 4.096 / 32767 × calibration / 100
-    // stored  = V_actual × 100
-    float voltage = (float)adcValue * 4.096f / 32767.0f * (float)calibration / 100.0f;
-    return (uint16_t)(voltage * 100.0f);
+    if (adcValue <= 0) return 0;
+    // stored = adcValue × 4.096 × calibration / 32767
+    //        = (adcValue × 4096 × calibration) / 32767000
+    return (uint16_t)(((uint64_t)adcValue * 4096 * calibration) / 32767000);
 }
 
 
 /*设置输出模式并设置为低电平*/
-void pinMode_OutSetting(uint32_t ulPin)
+static void pinMode_OutSetting(uint32_t ulPin)
 {
     pinMode(ulPin, OUTPUT_OPEN_DRAIN);
     digitalWrite(ulPin, HIGH);
@@ -128,7 +129,7 @@ void pinMode_OutSetting(uint32_t ulPin)
 /**
  * GPIO初始化
  */
-void GPIO_Init()
+static void GPIO_Init()
 {
     ShowMsg("GPIO_Initizing", true);
     /*拨码开关初始化*/
@@ -183,7 +184,7 @@ void GPIO_Init()
 }
 
 /*输入滤波函数*/
-void X_filter(void *pvParameters) // 每1MS调用一次，用来给输入滤波,滤波时间由Input_Filter_Time指定，默认5ms
+static void X_filter(void *pvParameters) // 每1MS调用一次，用来给输入滤波,滤波时间由Input_Filter_Time指定，默认5ms
 {
     vTaskDelay(pdMS_TO_TICKS(100)); // 延时100ms再启动任务
     ShowMsg("X_filter task started", true);

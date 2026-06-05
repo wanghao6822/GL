@@ -25,7 +25,7 @@
 /**
  * @brief Watchdog定时任务
  */
-void WatchdogTask(void *pvParameters)
+static void WatchdogTask(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(500)); // 延时500毫秒
     ShowMsg("Watchdog Task started", true);
@@ -66,7 +66,7 @@ TaskHandle_t taskTest;
 /**
  * @brief 任务测试函数,用来测试任务堆栈剩余空间
  */
-void TaskStackTest(void *pvParameters)
+static void TaskStackTest(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(1000)); // 延时1000ms
     ShowMsg("Task Stack Test Task started", true);
@@ -84,7 +84,7 @@ void TaskStackTest(void *pvParameters)
 /**
  * @brief IIC任务 — ADS1115 模拟量采集 + PCF8575 扩展IO（共用 I2C 总线）
  */
-void IICTask(void *pvParameters)
+static void IICTask(void *pvParameters)
 {
     uint8_t ADS1115InitCounter = 0; // ADS1115初始化计数器
 
@@ -141,7 +141,7 @@ void IICTask(void *pvParameters)
 /**
  * 将参数加载到MB寄存器中
  */
-void Load_ParameterTORegister(void)
+static void Load_ParameterTORegister(void)
 {
     // 读取参数到寄存器
     myModbusRTU.setHreg(0, Version);             // 固件版本
@@ -166,7 +166,7 @@ void Load_ParameterTORegister(void)
 /**
  * @brief 将MB寄存器参数保存到参数变量中,同时保存到EEPROM
  */
-void Save_ParameterFromRegister()
+static void Save_ParameterFromRegister()
 {
     // 保存寄存器参数到参数变量
     myPar.Input_Filter_Time = myModbusRTU.hreg(4);
@@ -194,7 +194,7 @@ void Save_ParameterFromRegister()
 
 /// @brief 主任务
 /// @param pvParameters
-void MainTask(void *pvParameters)
+static void MainTask(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(500)); // 延时500毫秒
     ShowMsg("Main task started", true);
@@ -262,7 +262,7 @@ void MainTask(void *pvParameters)
         SET_BIT_BY_BOOL(Input_Temp, 5, Input.X5);
         SET_BIT_BY_BOOL(Input_Temp, 6, Input.X6);
         SET_BIT_BY_BOOL(Input_Temp, 7, Input.X7);
-        myModbusRTU.setHreg(11, Input_Temp); // 将输入状态写入寄存器10
+        myModbusRTU.setHreg(11, Input_Temp); // 将输入状态写入寄存器11
 
         /********************************输出状态刷新********************************/
         if (myModbusRTU.hreg(12) != Output_Temp)
@@ -296,6 +296,7 @@ void MainTask(void *pvParameters)
 
             if (myModbusRTU.hreg(28) == 0) // 自动模式：硅链自动调压
             {
+                if (myPar.StepVoltage == 0) myPar.StepVoltage = 500; // 防止除以零，回退默认5.00V
                 int32_t deviation = (int32_t)myPar.TargetVoltage - (int32_t)kmVoltage;
 
                 if (deviation > (int32_t)myPar.DeadBandUpper) // KM偏低→升档(减小降压)
@@ -329,7 +330,7 @@ void MainTask(void *pvParameters)
             bool alarmOver = false, alarmUnder = false, alarmDiff = false;
 
             // 越上限：KM > 目标 + 死区上限
-            if (kmVoltage > myPar.TargetVoltage + myPar.DeadBandUpper)
+            if ((int32_t)kmVoltage > (int32_t)myPar.TargetVoltage + (int32_t)myPar.DeadBandUpper)
             {
                 if (alarmOverTime == 0) alarmOverTime = now;
                 else if (now - alarmOverTime >= 5000) alarmOver = true;
@@ -364,7 +365,7 @@ void MainTask(void *pvParameters)
  * @note  xTaskCreate参数: (任务函数, 任务名, 堆栈大小(字), 参数, 优先级(0最低), 句柄)
  *        优先级分配: 6=看门狗 5=输入滤波 4=Modbus 3=主逻辑
  */
-void CreateTaskMethods(void *pvParameters)
+static void CreateTaskMethods(void *pvParameters)
 {
     xTaskCreate(WatchdogTask, "WatchdogTask", 96, NULL, 6, NULL);
     ShowMsg("Watchdog task created.", true);
