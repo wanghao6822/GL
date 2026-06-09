@@ -52,6 +52,7 @@ REG_DEADBAND_U    = 26
 REG_DEADBAND_L    = 27
 REG_CTRL_MODE     = 28
 REG_MAX_DROP      = 29
+REG_PARITY        = 30  # 校验模式: 0=无校验(8N2), 1=偶校验(8E1), 2=奇校验(8O1)
 
 # 参数操作码
 OP_SAVE    = 10
@@ -69,6 +70,10 @@ BAUD_NAMES    = {0: "115200", 1: "9600", 2: "19200", 3: "38400"}
 
 # 可选波特率列表
 BAUD_RATE_LIST = [9600, 19200, 38400, 57600, 115200]
+
+# 校验位选项
+PARITY_OPTIONS = ["奇校验 (8O1)", "偶校验 (8E1)", "无校验 (8N2)"]
+PARITY_VALUES  = {"奇校验 (8O1)": "O", "偶校验 (8E1)": "E", "无校验 (8N2)": "N"}
 
 # 输入/输出通道名称
 INPUT_NAMES  = [f"X{i}" for i in range(8)]
@@ -188,7 +193,13 @@ class SiliconChainMonitor:
         self.combo_baud = ttk.Combobox(row1, width=10, state="readonly")
         self.combo_baud['values'] = [str(b) for b in BAUD_RATE_LIST]
         self.combo_baud.current(BAUD_RATE_LIST.index(115200))
-        self.combo_baud.pack(side=tk.LEFT, padx=(4, 16))
+        self.combo_baud.pack(side=tk.LEFT, padx=(4, 12))
+
+        tk.Label(row1, text="校验位:", bg=C_FRAME_BG, font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
+        self.combo_parity = ttk.Combobox(row1, width=13, state="readonly")
+        self.combo_parity['values'] = PARITY_OPTIONS
+        self.combo_parity.current(0)  # 默认奇校验
+        self.combo_parity.pack(side=tk.LEFT, padx=(4, 16))
 
         tk.Label(row1, text="从站ID:", bg=C_FRAME_BG, font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
         self.spin_slave = ttk.Spinbox(row1, from_=1, to=247, width=5)
@@ -512,11 +523,21 @@ class SiliconChainMonitor:
             self._log(f"正在连接 {port} 波特率 {baud} 从站 #{slave}...", "info")
             self._set_status("连接中...")
 
+            parity_label = self.combo_parity.get()
+            parity_code = PARITY_VALUES.get(parity_label, "O")
+
             instr = minimalmodbus.Instrument(port, slave)
             instr.serial.baudrate = baud
             instr.serial.bytesize = 8
-            instr.serial.parity = serial.PARITY_NONE
-            instr.serial.stopbits = 1
+            if parity_code == "E":
+                instr.serial.parity = serial.PARITY_EVEN
+                instr.serial.stopbits = 1
+            elif parity_code == "O":
+                instr.serial.parity = serial.PARITY_ODD
+                instr.serial.stopbits = 1
+            else:  # N — 无校验，须2停止位（Modbus标准）
+                instr.serial.parity = serial.PARITY_NONE
+                instr.serial.stopbits = 2
             instr.serial.timeout = 0.5
             instr.mode = minimalmodbus.MODE_RTU
             instr.clear_buffers_before_each_transaction = True
@@ -534,6 +555,7 @@ class SiliconChainMonitor:
             self.btn_disconnect.configure(state=tk.NORMAL)
             self.combo_port.configure(state=tk.DISABLED)
             self.combo_baud.configure(state=tk.DISABLED)
+            self.combo_parity.configure(state=tk.DISABLED)
             self.spin_slave.configure(state=tk.DISABLED)
             self.lbl_conn_status.config(text="  已连接  ", fg=C_CONNECTED)
 
@@ -578,6 +600,7 @@ class SiliconChainMonitor:
         self.btn_disconnect.configure(state=tk.DISABLED)
         self.combo_port.configure(state="readonly")
         self.combo_baud.configure(state="readonly")
+        self.combo_parity.configure(state="readonly")
         self.spin_slave.configure(state=tk.NORMAL)
         self.lbl_conn_status.config(text="  未连接  ", fg=C_DISCONNECT)
 

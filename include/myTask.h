@@ -162,6 +162,7 @@ static void Load_ParameterTORegister(void)
     myModbusRTU.setHreg(27, myPar.DeadBandLower);
     myModbusRTU.setHreg(28, myPar.ControlMode);
     myModbusRTU.setHreg(29, myPar.MaxDropVoltage);
+    myModbusRTU.setHreg(30, myPar.ParityMode);   // 校验模式
 }
 /**
  * @brief 将MB寄存器参数保存到参数变量中,同时保存到EEPROM
@@ -189,6 +190,7 @@ static void Save_ParameterFromRegister()
     myPar.DeadBandLower  = myModbusRTU.hreg(27); // 死区下限×100
     myPar.ControlMode    = myModbusRTU.hreg(28); // 0=自动, 1=手动
     myPar.MaxDropVoltage = myModbusRTU.hreg(29); // 最大压降×100
+    myPar.ParityMode     = myModbusRTU.hreg(30); // 校验模式（需重启生效）
     Save_Parameter();
 }
 

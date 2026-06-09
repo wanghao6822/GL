@@ -31,7 +31,19 @@ static void ModbusRTU_Initialize()
   ShowMsg("ModbusRTU initializing", true);
   myModbusRTU.setSlaveId(myPar.SlaveId);      // 设置站号
   myModbusRTU.config(myPar.Baudrate);         // ModbusRTU开始，需要依靠串口来工作
-  mbSerial.begin(myPar.Baudrate, SERIAL_8N1); // 串口开始工作
+  // 校验模式：0=无校验(SERIAL_8N2), 1=偶校验(SERIAL_8E1), 2=奇校验(SERIAL_8O1)
+  switch (myPar.ParityMode)
+  {
+  case 0:
+    mbSerial.begin(myPar.Baudrate, SERIAL_8N2); // 无校验→2停止位(Modbus标准)
+    break;
+  case 1:
+    mbSerial.begin(myPar.Baudrate, SERIAL_8E1); // 偶校验
+    break;
+  default:
+    mbSerial.begin(myPar.Baudrate, SERIAL_8O1); // 奇校验(默认)
+    break;
+  }
   // ModbusRTU的保持寄存器配置
   for (int i = 0; i < MaxModbusRegNum; i++) // 添加保持寄存器
   {
