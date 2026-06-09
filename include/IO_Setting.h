@@ -108,7 +108,7 @@ static void SetGearOutput(uint8_t gear)
 }
 
 // ADC原始值→实际电压（放大100倍存储）
-// calibration: 降压系数×100，如99.00→9900
+// calibration: 降压系数×100，如91.00→9100（R上=900kΩ/R下=10kΩ，分压比1:91）
 // 整数运算，避免Cortex-M3无FPU时软浮点开销
 static uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
 {
