@@ -5,7 +5,7 @@
 #include <IPAddress.h>
 #include "myShowMsg.h"
 
-#define MaxModbusRegNum 31 // 最大寄存器数量（0~30，含硅链控制+校验模式寄存器）
+#define MaxModbusRegNum 33 // 最大寄存器数量（0~32，含硅链控制+校验模式+校准寄存器）
 #define Version 260604     // 固件版本号,2位年+2位月份+2位日
 
 /**
@@ -51,18 +51,18 @@ struct Parameter_Config
 
     // ===== 硅链调压控制参数（新增） =====
     uint16_t TargetVoltage;  // 目标KM电压，放大100倍，默认22000(220.00V)
-    uint16_t StepVoltage;    // 每档压降，放大100倍，默认500(5.00V)
-    uint16_t DeadBandUpper;  // 死区上限，放大100倍，默认200(2.00V)
-    uint16_t DeadBandLower;  // 死区下限，放大100倍，默认200(2.00V)
+    uint16_t StepVoltage;    // 每档压降默认值×100，默认350(3.50V)，运行时动态计算实际值
+    uint16_t DeadBandUpper;  // 死区上限×100，默认350(3.50V)，运行时=动态每挡压差
+    uint16_t DeadBandLower;  // 死区下限×100，默认350(3.50V)，运行时=动态每挡压差
     uint16_t HM_Calibration; // HM降压系数×100，默认9100(91.00)，对应分压比R上=900kΩ/R下=10kΩ
     uint16_t KM_Calibration; // KM降压系数×100，默认9100(91.00)，对应分压比R上=900kΩ/R下=10kΩ
     uint16_t MaxDropVoltage; // 硅链最大压降×100，默认3500(35V→220V)，110V系统设为2100
-    uint16_t ControlMode;   // 控制模式 0=自动调压, 1=手动控制，掉电记忆
+    uint16_t ControlMode;   // 控制模式: 0=强制自动, 1=强制手动, 2=跟随X0硬件开关（默认），掉电记忆
     uint8_t  CurrentGear;    // 当前档位0~7，掉电记忆
     uint16_t ParityMode;     // 校验模式 0=无校验(SERIAL_8N2), 1=偶校验(SERIAL_8E1), 2=奇校验(SERIAL_8O1)，掉电记忆
 
     Parameter_Config() : InitFlag(66), SlaveId(1), Baudrate(115200), ConfigVersion(3), mac{0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56}, ip{192, 168, 1, 168}, Input_Filter_Time(5),
-                         TargetVoltage(22000), StepVoltage(500), DeadBandUpper(200), DeadBandLower(200), HM_Calibration(9100), KM_Calibration(9100), MaxDropVoltage(3500), ControlMode(0), CurrentGear(0), ParityMode(2) {}
+                         TargetVoltage(22000), StepVoltage(350), DeadBandUpper(350), DeadBandLower(350), HM_Calibration(9100), KM_Calibration(9100), MaxDropVoltage(3500), ControlMode(2), CurrentGear(0), ParityMode(2) {}
 };
 
 // 全局变量，保存参数配置

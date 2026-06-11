@@ -76,8 +76,11 @@ AnalogStruct myAI;
 /*********硅链调压控制*********/
 #define AlarmOutPin Output_Y0 // 报警输出引脚 Y0(PA15)
 
-// 3继电器→8档位编码表：{Y2, Y3, Y4}，1=导通(LOW)，0=断开
-// G0降压最大(35V)→G7直通(0V)，每档5V
+// 硅链继电器编码表: 3继电器(Y2,Y3,Y4)→8档位(0~7)
+// 编码与SCTY-D1用户手册表3一致（1=导通/闭合/LOW, 0=断开/HIGH）
+// G0(降压最大35V)→G7(直通0V)，220V系统每档约5V
+//   G0: 全断=35V  G1: Y2通=30V  G2: Y3通=25V  G3: Y2+Y3=20V
+//   G4: Y4通=15V  G5: Y2+Y4=10V G6: Y3+Y4=5V   G7: 全通=0V
 const uint8_t GearRelayTable[8][3] = {
     {0, 0, 0}, // G0: 降压35V
     {1, 0, 0}, // G1: 降压30V
@@ -107,9 +110,11 @@ static void SetGearOutput(uint8_t gear)
     digitalWrite(Output_Y4, GearRelayTable[gear][2] ? LOW : HIGH);
 }
 
-// ADC原始值→实际电压（放大100倍存储）
-// calibration: 降压系数×100，如91.00→9100（R上=900kΩ/R下=10kΩ，分压比1:91）
-// 整数运算，避免Cortex-M3无FPU时软浮点开销
+// ADC原始值→实际电压（放大100倍存储，如24300=243.00V）
+// calibration: 分压比×100，默认9100(分压比91:1)，可通过Modbus寄存器31/32在线校准
+// 公式: voltage = adcValue × 4.096V × calibration / (32767 × 100)
+//       = (adcValue × 4096 × calibration) / 32767000
+// 使用uint64_t中间变量避免Cortex-M3无FPU时的软浮点开销
 static uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
 {
     if (adcValue <= 0) return 0;

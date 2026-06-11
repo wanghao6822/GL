@@ -7,17 +7,20 @@
 #include "IO_Setting.h"
 #include "myModbus.h"
 #include "myADS1115.h"
-// #include "myExternaIO.h"
 
-// 设定字中的位状态
+// ============================================================
+// 宏定义
+// ============================================================
+
+// 位操作：根据bool值设置/清除寄存器的指定位
 #define SET_BIT_BY_BOOL(reg, bitIndex, value) \
     ((value) ? ((reg) |= (1 << (bitIndex))) : ((reg) &= ~(1 << (bitIndex))))
 
-// 定义是否开启任务堆栈剩余空间测试功能
-// #define TaskStackTestEnable 1
-
-// Watchdog超时时间，单位为毫秒
+// 看门狗超时时间 (ms)
 #define WATCHDOG_TIMEOUT_MS 400
+
+// 【调试用】取消注释以开启 FreeRTOS 任务堆栈剩余空间监测
+// #define TaskStackTestEnable 1
 
 /************************************************************************************
 任务列表：
@@ -27,34 +30,31 @@
  */
 static void WatchdogTask(void *pvParameters)
 {
-    vTaskDelay(pdMS_TO_TICKS(500)); // 延时500毫秒
+    vTaskDelay(pdMS_TO_TICKS(500));
     ShowMsg("Watchdog Task started", true);
-    IWatchdog.begin(1000 * WATCHDOG_TIMEOUT_MS); // 启动看门狗，单位是微秒
-    uint32_t lastFeedTime = millis();            // 记录上次喂狗时间
-    bool witchDogTimeout = false;                // 看门狗超时标志
+    IWatchdog.begin(1000 * WATCHDOG_TIMEOUT_MS);
+    uint32_t lastFeedTime = millis();
+    bool witchDogTimeout = false;
 
     while (true)
     {
-        vTaskDelay(pdMS_TO_TICKS(100)); // 延时100ms
-        // 喂狗，更新喂狗时间
+        vTaskDelay(pdMS_TO_TICKS(100));
+        // 每半超时周期喂狗一次
         if (millis() - lastFeedTime > WATCHDOG_TIMEOUT_MS / 2)
         {
-            IWatchdog.reload(); // 喂狗
+            IWatchdog.reload();
             lastFeedTime = millis();
-            // ShowMsg("Watchdog Feed", true);
-            // if (myModbusRTU.hreg(19) != 0)//用来触发看门狗超时，测试用
-            // {
-            //     delay(1200); // 延时1秒，等待主程序处理完Modbus数据
-            // }
         }
-        if (IWatchdog.isReset()) // 看门狗超时被复位过
+        // 检测看门狗是否触发过复位
+        if (IWatchdog.isReset())
         {
             witchDogTimeout = true;
-            IWatchdog.clearReset(); // 清除复位标志
+            IWatchdog.clearReset();
         }
-        if (witchDogTimeout) // 当看门狗超时后，开始闪烁错误LED
+        // 看门狗复位后闪烁错误LED指示
+        if (witchDogTimeout)
         {
-            digitalWrite(ERROR_LED, LOW); // 翻转错误LED状态
+            digitalWrite(ERROR_LED, LOW);
         }
     }
 }
@@ -82,7 +82,10 @@ static void TaskStackTest(void *pvParameters)
 #endif
 
 /**
- * @brief IIC任务 — ADS1115 模拟量采集 + PCF8575 扩展IO（共用 I2C 总线）
+ * @brief IIC任务 — ADS1115 模拟量采集（与PCF8575共用I2C总线，PCF8575预留）
+ *
+ * 采集周期：1秒
+ * ADS1115初始化失败重试5次，全部失败后任务退出，寄存器15~18写入32767(错误标记)
  */
 static void IICTask(void *pvParameters)
 {
@@ -163,14 +166,36 @@ static void Load_ParameterTORegister(void)
     myModbusRTU.setHreg(28, myPar.ControlMode);
     myModbusRTU.setHreg(29, myPar.MaxDropVoltage);
     myModbusRTU.setHreg(30, myPar.ParityMode);   // 校验模式
+    myModbusRTU.setHreg(31, myPar.HM_Calibration); // HM校准系数
+    myModbusRTU.setHreg(32, myPar.KM_Calibration); // KM校准系数
 }
 /**
+ * @brief 钳位辅助：若val超出[min,max]则回退到fallback
+ * @note  与PLC梯形图7参数合法性校验逻辑等效
+ */
+static inline uint16_t ClampParam(uint16_t val, uint16_t minVal, uint16_t maxVal, uint16_t fallback)
+{
+    return (val >= minVal && val <= maxVal) ? val : fallback;
+}
+
+/**
  * @brief 将MB寄存器参数保存到参数变量中,同时保存到EEPROM
+ * @note  参数范围校验（参照PLC梯形图7 / SCTY-D1规格书）：
+ *        - 目标电压: 0~300.00V（0~30000），兼容110V/220V系统
+ *        - 每档压降: 1.00~20.00V（100~2000）
+ *        - 死区:     0~20.00V（0~2000），PLC: D594/D596∈[0,1000]
+ *        - 最大压降: 5.00~50.00V（500~5000），220V系统≤35V，110V系统≤21V
+ *        - 校准系数: 10.00~200.00（1000~20000），默认91.00
+ *        - 控制模式: 0=强制自动, 1=强制手动, 2=跟随X0硬件开关（默认）
+ *        - 校验模式: 0=无校验, 1=偶校验, 2=奇校验
  */
 static void Save_ParameterFromRegister()
 {
     // 保存寄存器参数到参数变量
-    myPar.Input_Filter_Time = myModbusRTU.hreg(4);
+    uint16_t val;
+    val = myModbusRTU.hreg(4);
+    myPar.Input_Filter_Time = ClampParam(val, 1, 100, myPar.Input_Filter_Time);
+
     myPar.mac[0] = myModbusRTU.hreg(5) & 0xFF;
     myPar.mac[1] = (myModbusRTU.hreg(5) >> 8) & 0xFF;
     myPar.mac[2] = myModbusRTU.hreg(6) & 0xFF;
@@ -183,19 +208,51 @@ static void Save_ParameterFromRegister()
     myPar.ip[2] = (myModbusRTU.hreg(8) >> 8) & 0xFF;
     myPar.ip[3] = myModbusRTU.hreg(8) & 0xFF;
 
-    // 硅链调压参数：从寄存器回读并保存到EEPROM
-    myPar.TargetVoltage  = myModbusRTU.hreg(24); // 目标电压×100
-    myPar.StepVoltage    = myModbusRTU.hreg(25); // 每档压降×100
-    myPar.DeadBandUpper  = myModbusRTU.hreg(26); // 死区上限×100
-    myPar.DeadBandLower  = myModbusRTU.hreg(27); // 死区下限×100
-    myPar.ControlMode    = myModbusRTU.hreg(28); // 0=自动, 1=手动
-    myPar.MaxDropVoltage = myModbusRTU.hreg(29); // 最大压降×100
-    myPar.ParityMode     = myModbusRTU.hreg(30); // 校验模式（需重启生效）
+    // 硅链调压参数：从寄存器回读（含范围校验，超限回退旧值）
+    val = myModbusRTU.hreg(24);
+    myPar.TargetVoltage  = ClampParam(val, 0, 30000, myPar.TargetVoltage);
+
+    val = myModbusRTU.hreg(25);
+    myPar.StepVoltage    = ClampParam(val, 100, 2000, myPar.StepVoltage);
+
+    val = myModbusRTU.hreg(26);
+    myPar.DeadBandUpper  = ClampParam(val, 0, 2000, myPar.DeadBandUpper);
+
+    val = myModbusRTU.hreg(27);
+    myPar.DeadBandLower  = ClampParam(val, 0, 2000, myPar.DeadBandLower);
+
+    val = myModbusRTU.hreg(28);
+    myPar.ControlMode    = ClampParam(val, 0, 2, myPar.ControlMode); // 0=强制自动, 1=强制手动, 2=跟随X0
+
+    val = myModbusRTU.hreg(29);
+    myPar.MaxDropVoltage = ClampParam(val, 500, 5000, myPar.MaxDropVoltage);
+
+    val = myModbusRTU.hreg(30);
+    myPar.ParityMode     = ClampParam(val, 0, 2, myPar.ParityMode);
+
+    val = myModbusRTU.hreg(31);
+    myPar.HM_Calibration = ClampParam(val, 1000, 20000, myPar.HM_Calibration);
+
+    val = myModbusRTU.hreg(32);
+    myPar.KM_Calibration = ClampParam(val, 1000, 20000, myPar.KM_Calibration);
+
     Save_Parameter();
 }
 
-/// @brief 主任务
-/// @param pvParameters
+/// @brief 主任务 — 参数管理 + IO刷新 + 硅链调压控制 + 报警检测
+/// @param pvParameters FreeRTOS任务参数（未使用）
+///
+/// 执行周期：
+///   - 10ms:  参数操作响应 + 输入/输出状态刷新
+///   - 1000ms: 运行时间更新 + 硅链调压 + 报警检测
+///
+/// 硅链调压算法（等效PLC梯形图10公式）：
+///   deviation  = TargetVoltage - KM
+///   gear_steps = deviation / dynStepVoltage        (PLC: D532 = (D524-D520)/D570)
+///   targetGear = clamp(CurrentGear ± gear_steps, 0, 7)
+///
+/// 档位-继电器编码（与SCTY-D1用户手册表3一致）：
+///   G0(全断=35V)→G1→G2→G3→G4→G5→G6→G7(全通=0V)
 static void MainTask(void *pvParameters)
 {
     vTaskDelay(pdMS_TO_TICKS(500)); // 延时500毫秒
@@ -254,8 +311,7 @@ static void MainTask(void *pvParameters)
         }
 
         /********************************输入状态刷新********************************/
-        // 将多个位字段组合成两个字节
-        // 现在 combinedBytes 包含了 Input 结构体的位字段组合成的两个字节的数值
+        // 将 X0~X7 的 bool 状态打包为寄存器11的8个bit位
         SET_BIT_BY_BOOL(Input_Temp, 0, Input.X0);
         SET_BIT_BY_BOOL(Input_Temp, 1, Input.X1);
         SET_BIT_BY_BOOL(Input_Temp, 2, Input.X2);
@@ -267,15 +323,21 @@ static void MainTask(void *pvParameters)
         myModbusRTU.setHreg(11, Input_Temp); // 将输入状态写入寄存器11
 
         /********************************输出状态刷新********************************/
+        // 寄存器12变更时刷新物理输出
         if (myModbusRTU.hreg(12) != Output_Temp)
         {
             Output_Temp = myModbusRTU.hreg(12);
-            if (myModbusRTU.hreg(28) == 0) // 自动模式(寄存器28=0)：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
+            // 手/自动模式判定（优先级: 寄存器28 > X0硬件开关）
+            // 寄存器28=2(默认) → 跟随X0; =0→强制自动; =1→强制手动
+            uint8_t reg28 = myModbusRTU.hreg(28);
+            uint8_t effMode = (reg28 == 2) ? (Input.X0 ? 0 : 1) : reg28;
+
+            if (effMode == 0) // 自动模式：Y0=报警, Y2/Y3/Y4=硅链控制, Y1/Y5=通用
             {
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y5, (Output_Temp & 0x20) > 0 ? LOW : HIGH);
             }
-            else // 手动模式(寄存器28=1)：Y2-Y5由上位机通过寄存器12控制，Y0=报警
+            else // 手动模式：Y2-Y5由上位机通过寄存器12控制，Y0=报警
             {
                 digitalWrite(Output_Y1, (Output_Temp & 0x02) > 0 ? LOW : HIGH);
                 digitalWrite(Output_Y2, (Output_Temp & 0x04) > 0 ? LOW : HIGH);
@@ -286,39 +348,101 @@ static void MainTask(void *pvParameters)
         }
 
         /********************************时间刷新 + 硅链调压控制（每秒执行一次）**********/
-        if (millis() - timeRecord > 1000) // 每隔1秒刷新一次时间
+        if (millis() - timeRecord > 1000)
         {
             timeRecord = millis();
-            digitalWrite(RUN_LED, runLedTemp = !runLedTemp); // 翻转运行LED状态
-            myModbusRTU.setHreg(10, timeRecord / 1000);      // 写入时间到寄存器10
+            digitalWrite(RUN_LED, runLedTemp = !runLedTemp);
+            myModbusRTU.setHreg(10, timeRecord / 1000);
 
-            // ===== 硅链调压控制 =====
+            // ============================================================
+            // 硅链调压控制 — 动态每挡压差 + 动态死区
+            // 参照 PLC 梯形图10: (D524-D520)/D570 = D532
+            // ============================================================
             uint16_t hmVoltage = myModbusRTU.hreg(20); // HM实际电压(×100)
             uint16_t kmVoltage = myModbusRTU.hreg(21); // KM实际电压(×100)
 
-            if (myModbusRTU.hreg(28) == 0) // 自动模式：硅链自动调压
+            // 动态参数（掉电不保存，每周期重新计算）
+            static uint16_t dynStepVoltage = 0;    // 动态每挡压差×100
+            static uint16_t dynDeadBand = 0;       // 动态死区×100 (=动态压差)
+            static int32_t  prevKM = 0;            // 调挡前KM电压（用于计算实际压降）
+            static int8_t   prevGear = -1;         // 调挡前档位
+            static bool     waitForSettle = false; // true=下周期计算实际压差
+
+            // 首次运行从EEPROM默认值初始化
+            if (dynStepVoltage == 0) {
+                dynStepVoltage = (myPar.StepVoltage > 0) ? myPar.StepVoltage : 350;
+                dynDeadBand    = dynStepVoltage;
+            }
+
+            // 手/自动模式判定（优先级: 寄存器28 > X0硬件开关）
+            uint8_t reg28 = myModbusRTU.hreg(28);
+            uint8_t effMode = (reg28 == 2) ? (Input.X0 ? 0 : 1) : reg28;
+
+            if (effMode == 0) // 自动模式
             {
-                if (myPar.StepVoltage == 0) myPar.StepVoltage = 500; // 防止除以零，回退默认5.00V
+                // --- 步骤1：动态学习（上周期调挡→本周计算实际每挡压降） ---
+                if (waitForSettle)
+                {
+                    waitForSettle = false;
+                    int8_t gearDelta = abs((int8_t)myPar.CurrentGear - prevGear);
+                    if (gearDelta > 0 && prevKM > 0)
+                    {
+                        int32_t voltDrop = prevKM - (int32_t)kmVoltage; // 降压量=调前KM-当前KM
+                        if (voltDrop > 0)
+                        {
+                            dynStepVoltage = (uint16_t)(voltDrop / gearDelta);
+                            if (dynStepVoltage < 10) dynStepVoltage = myPar.StepVoltage;
+                            dynDeadBand = dynStepVoltage;
+                        }
+                    }
+                }
+
+                if (dynStepVoltage == 0) dynStepVoltage = 350;
+                if (dynDeadBand == 0)    dynDeadBand    = dynStepVoltage;
+
+                // --- 步骤2：调压判断（PLC公式）---
                 int32_t deviation = (int32_t)myPar.TargetVoltage - (int32_t)kmVoltage;
 
-                if (deviation > (int32_t)myPar.DeadBandUpper) // KM偏低→升档(减小降压)
+                if (deviation > (int32_t)dynDeadBand) // KM偏低→升档(减小硅链降压)
                 {
-                    uint8_t steps = deviation / myPar.StepVoltage;
+                    uint8_t steps = deviation / dynStepVoltage;
                     if (steps == 0) steps = 1;
-                    uint16_t newGear = (uint16_t)myPar.CurrentGear + steps;
-                    myPar.CurrentGear = (newGear > 7) ? 7 : (uint8_t)newGear;
+                    int16_t targetGear = (int16_t)myPar.CurrentGear + steps;
+                    if (targetGear > 7) targetGear = 7;   // 钳位: 最大G7(直通)
+
+                    if (targetGear != myPar.CurrentGear)
+                    {
+                        prevKM   = kmVoltage;             // 记录调前电压
+                        prevGear = myPar.CurrentGear;      // 记录调前档位
+                        myPar.CurrentGear = (uint8_t)targetGear;
+                        waitForSettle = true;              // 下周期计算压差
+                    }
                 }
-                else if (-deviation > (int32_t)myPar.DeadBandLower) // KM偏高→降档(增大降压)
+                else if (-deviation > (int32_t)dynDeadBand) // KM偏高→降档(增大硅链降压)
                 {
-                    uint8_t steps = (-deviation) / myPar.StepVoltage;
+                    uint8_t steps = (-deviation) / dynStepVoltage;
                     if (steps == 0) steps = 1;
-                    myPar.CurrentGear = (myPar.CurrentGear < steps) ? 0 : (myPar.CurrentGear - steps);
+                    int16_t targetGear = (int16_t)myPar.CurrentGear - steps;
+                    if (targetGear < 0) targetGear = 0;    // 钳位: 最小G0(最大降压)
+
+                    if (targetGear != myPar.CurrentGear)
+                    {
+                        prevKM   = kmVoltage;
+                        prevGear = myPar.CurrentGear;
+                        myPar.CurrentGear = (uint8_t)targetGear;
+                        waitForSettle = true;
+                    }
                 }
 
+                // --- 步骤3：输出继电器 + 更新寄存器 ---
                 SetGearOutput(myPar.CurrentGear);
                 myModbusRTU.setHreg(22, myPar.CurrentGear);
+                // 同步动态值到寄存器（上位机可实时查看）
+                myModbusRTU.setHreg(25, dynStepVoltage);
+                myModbusRTU.setHreg(26, dynDeadBand);
+                myModbusRTU.setHreg(27, dynDeadBand);
             }
-            else // 手动模式：硅链继电器由上位机控（输出刷新段处理），仅反算档位供显示
+            else // 手动模式：Y2/Y3/Y4由寄存器12控制，此处反算档位仅用于显示
             {
                 myModbusRTU.setHreg(22, RelayToGear(
                     (Output_Temp >> 2) & 1,
@@ -326,28 +450,30 @@ static void MainTask(void *pvParameters)
                     (Output_Temp >> 4) & 1));
             }
 
-            // ===== 报警检测（5s消抖） =====
+            // ============================================================
+            // 报警检测（5秒消抖，参照PLC梯形图3的T11~T13定时器）
+            // ============================================================
             int32_t diffVoltage = (int32_t)hmVoltage - (int32_t)kmVoltage;
             uint32_t now = millis();
             bool alarmOver = false, alarmUnder = false, alarmDiff = false;
 
-            // 越上限：KM > 目标 + 死区上限
-            if ((int32_t)kmVoltage > (int32_t)myPar.TargetVoltage + (int32_t)myPar.DeadBandUpper)
+            // 越上限: KM > 目标 + 动态死区，持续5秒
+            if ((int32_t)kmVoltage > (int32_t)myPar.TargetVoltage + (int32_t)dynDeadBand)
             {
                 if (alarmOverTime == 0) alarmOverTime = now;
                 else if (now - alarmOverTime >= 5000) alarmOver = true;
             }
             else { alarmOverTime = 0; }
 
-            // 越下限：KM < 目标 - 死区下限
-            if (kmVoltage < (int32_t)myPar.TargetVoltage - (int32_t)myPar.DeadBandLower)
+            // 越下限: KM < 目标 - 动态死区，持续5秒
+            if ((int32_t)kmVoltage < (int32_t)myPar.TargetVoltage - (int32_t)dynDeadBand)
             {
                 if (alarmUnderTime == 0) alarmUnderTime = now;
                 else if (now - alarmUnderTime >= 5000) alarmUnder = true;
             }
             else { alarmUnderTime = 0; }
 
-            // 压差异常：HM - KM > 硅链最大降压
+            // 压差异常: HM-KM > 硅链最大降压值，持续5秒
             if (diffVoltage > (int32_t)myPar.MaxDropVoltage)
             {
                 if (alarmDiffTime == 0) alarmDiffTime = now;
@@ -355,8 +481,9 @@ static void MainTask(void *pvParameters)
             }
             else { alarmDiffTime = 0; }
 
+            // 综合报警输出（任一条件满足即报警）
             alarmState = alarmOver || alarmUnder || alarmDiff;
-            digitalWrite(AlarmOutPin, alarmState ? LOW : HIGH); // LOW=导通报警
+            digitalWrite(AlarmOutPin, alarmState ? LOW : HIGH); // LOW=导通(报警)
             myModbusRTU.setHreg(23, alarmState ? 1 : 0);
         }
     }

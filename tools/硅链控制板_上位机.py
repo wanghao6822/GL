@@ -53,6 +53,8 @@ REG_DEADBAND_L    = 27
 REG_CTRL_MODE     = 28
 REG_MAX_DROP      = 29
 REG_PARITY        = 30  # 校验模式: 0=无校验(8N2), 1=偶校验(8E1), 2=奇校验(8O1)
+REG_HM_CAL        = 31  # HM校准系数×100（默认9100=91.00倍分压比）
+REG_KM_CAL        = 32  # KM校准系数×100（默认9100=91.00倍分压比）
 
 # 参数操作码
 OP_SAVE    = 10
@@ -77,7 +79,8 @@ PARITY_VALUES  = {"奇校验 (8O1)": "O", "偶校验 (8E1)": "E", "无校验 (8N
 
 # 输入/输出通道名称
 INPUT_NAMES  = [f"X{i}" for i in range(8)]
-OUTPUT_NAMES = [f"Y{i}" for i in range(6)]
+OUTPUT_NAMES = ["报警", "备用", "一级硅链", "二级硅链", "三级硅链", "备用"]
+OUTPUT_PINS  = ["Y0", "Y1", "Y2", "Y3", "Y4", "Y5"]  # 引脚备注
 
 # 档位对应降压值说明（220V系统）
 GEAR_DROP = {0: 35, 1: 30, 2: 25, 3: 20, 4: 15, 5: 10, 6: 5, 7: 0}
@@ -105,8 +108,8 @@ class SiliconChainMonitor:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("硅链控制板 - 上位机监控")
-        self.root.geometry("900x780")
-        self.root.minsize(800, 700)
+        self.root.geometry("960x780")
+        self.root.minsize(860, 700)
         self.root.configure(bg=C_BG)
 
         # 通信对象
@@ -252,9 +255,9 @@ class SiliconChainMonitor:
         for i, (label, key, suffix) in enumerate(info_items):
             row = tk.Frame(inner, bg=C_FRAME_BG)
             row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=label, width=10, anchor=tk.W, bg=C_FRAME_BG,
+            tk.Label(row, text=label, width=7, anchor=tk.W, bg=C_FRAME_BG,
                      font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
-            lbl = tk.Label(row, text="--", width=14, anchor=tk.W, bg="white",
+            lbl = tk.Label(row, text="--", width=10, anchor=tk.W, bg="white",
                            relief=tk.SUNKEN, font=("Consolas", 10), fg=C_TEXT)
             lbl.pack(side=tk.LEFT, padx=2)
             setattr(self, f"lbl_{key}", lbl)
@@ -265,13 +268,14 @@ class SiliconChainMonitor:
         # 控制模式 (可切换)
         mode_row = tk.Frame(inner, bg=C_FRAME_BG)
         mode_row.pack(fill=tk.X, pady=3)
-        tk.Label(mode_row, text="控制模式:", width=10, anchor=tk.W, bg=C_FRAME_BG,
+        tk.Label(mode_row, text="控制模式:", width=7, anchor=tk.W, bg=C_FRAME_BG,
                  font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
-        self.combo_mode = ttk.Combobox(mode_row, values=["自动调压", "手动控制"],
-                                        state="readonly", width=12)
+        # 控制模式: 0=强制自动, 1=强制手动, 2=跟随X0(默认)
+        self.combo_mode = ttk.Combobox(mode_row, values=["强制自动", "强制手动", "跟随X0硬件"],
+                                        state="readonly", width=14)
         self.combo_mode.pack(side=tk.LEFT, padx=2)
         self.combo_mode.bind("<<ComboboxSelected>>", self._on_mode_change)
-        self.lbl_dev_mode = tk.Label(mode_row, text="(X0硬件决定)", bg=C_FRAME_BG,
+        self.lbl_dev_mode = tk.Label(mode_row, text="(优先级: 寄存器28 > X0)", bg=C_FRAME_BG,
                                       font=("Microsoft YaHei", 8), fg="#999")
         self.lbl_dev_mode.pack(side=tk.LEFT, padx=6)
 
@@ -307,9 +311,9 @@ class SiliconChainMonitor:
         self.io_inputs = {}
         for i, name in enumerate(INPUT_NAMES):
             frame_io = tk.Frame(input_frame, bg=C_OFF, relief=tk.RAISED, bd=1)
-            frame_io.pack(side=tk.LEFT, padx=2, ipadx=8, ipady=2)
+            frame_io.pack(side=tk.LEFT, padx=1, ipadx=4, ipady=1)
             lbl = tk.Label(frame_io, text=name, bg=C_OFF, fg="white",
-                           font=("Consolas", 9, "bold"), width=3)
+                           font=("Consolas", 8, "bold"), width=3)
             lbl.pack()
             self.io_inputs[i] = (frame_io, lbl)
 
@@ -328,27 +332,42 @@ class SiliconChainMonitor:
             lbl.pack(pady=(0, 2))
             self.io_ai_labels[i] = lbl
 
-        # --- 数字输出 (可操控) ---
-        tk.Label(inner, text="数字输出 (点击切换)", bg=C_FRAME_BG,
+        # --- 数字输出 ---
+        tk.Label(inner, text="数字输出", bg=C_FRAME_BG,
                  font=("Microsoft YaHei", 9, "bold"), fg=C_ACCENT).pack(anchor=tk.W, pady=(8, 2))
 
-        output_frame = tk.Frame(inner, bg=C_FRAME_BG)
-        output_frame.pack(fill=tk.X)
         self.io_outputs = {}
         self.io_output_vars = {}
-        for i, name in enumerate(OUTPUT_NAMES):
-            frame_io = tk.Frame(output_frame, bg=C_OFF, relief=tk.RAISED, bd=1)
-            frame_io.pack(side=tk.LEFT, padx=2, ipadx=6, ipady=2)
-            var = tk.IntVar(value=0)
-            self.io_output_vars[i] = var
-            cb = tk.Checkbutton(frame_io, text=name, variable=var,
-                               bg=C_OFF, fg="white", selectcolor=C_ON,
-                               activebackground=C_OFF,
-                               font=("Consolas", 9, "bold"), width=3,
-                               indicatoron=False,
-                               command=lambda idx=i: self._toggle_output(idx))
-            cb.pack()
-            self.io_outputs[i] = (frame_io, cb)
+        self.io_output_notes = {}
+
+        # 三行布局: [Y0报警,Y1备用] / [Y2一级,Y3二级,Y4三级(可切换)] / [Y5备用]
+        output_rows = [
+            [0, 1],      # 报警, 备用(不可切换)
+            [2, 3, 4],   # 一级硅链, 二级硅链, 三级硅链(点击切换)
+            [5],         # 备用(不可切换)
+        ]
+        for row_idxs in output_rows:
+            row_frame = tk.Frame(inner, bg=C_FRAME_BG)
+            row_frame.pack(fill=tk.X, pady=1)
+            for i in row_idxs:
+                name = OUTPUT_NAMES[i]
+                frame_io = tk.Frame(row_frame, bg=C_OFF, relief=tk.RAISED, bd=1)
+                frame_io.pack(side=tk.LEFT, padx=2, ipadx=6, ipady=3)
+                var = tk.IntVar(value=0)
+                self.io_output_vars[i] = var
+                cb_state = tk.DISABLED if i in (0, 1, 5) else tk.NORMAL
+                cb = tk.Checkbutton(frame_io, text=name, variable=var,
+                                   bg=C_OFF, fg="white", selectcolor=C_ON,
+                                   activebackground=C_OFF,
+                                   font=("Microsoft YaHei", 9, "bold"), width=10,
+                                   indicatoron=False, state=cb_state,
+                                   command=lambda idx=i: self._toggle_output(idx))
+                cb.pack()
+                note = tk.Label(frame_io, text=OUTPUT_PINS[i], bg=C_OFF, fg="#DDD",
+                               font=("Consolas", 8, "bold"))
+                note.pack()
+                self.io_output_notes[i] = note
+                self.io_outputs[i] = (frame_io, cb)
 
     def _build_monitor(self, parent):
         """四、监测数据"""
@@ -382,7 +401,7 @@ class SiliconChainMonitor:
             ("控母电压 KM", "km_volt", "V", 0, 1),
             ("当前档位", "gear", "", 0, 2),
             ("报警状态", "alarm", "", 1, 0),
-            ("控制模式", "ctrl_mode", "", 1, 1),
+            ("目标电压", "target_v_gui", "V", 1, 1),
             ("HM-KM 压差", "diff_volt", "V", 1, 2),
         ]
 
@@ -408,25 +427,25 @@ class SiliconChainMonitor:
 
     def _build_params(self, parent):
         """五、参数设置"""
-        frame = ttk.LabelFrame(parent, text="  参数设置  ", style="Section.TLabelframe")
+        frame = ttk.LabelFrame(parent, text="  参数设置 (超限值自动拒绝，回退旧值)  ", style="Section.TLabelframe")
         frame.pack(fill=tk.X, pady=4)
 
         inner = tk.Frame(frame, bg=C_FRAME_BG)
         inner.pack(fill=tk.X, padx=10, pady=6)
 
-        # 参数列表: (标签, 变量名, 单位, 除数)
+        # 参数列表: (标签, 变量名, 单位, 默认值, 范围说明)
         params = [
-            ("目标电压", "target_v", "V", 100.0),
-            ("每档压降", "step_v", "V", 100.0),
-            ("死区上限", "deadband_u", "V", 100.0),
-            ("死区下限", "deadband_l", "V", 100.0),
-            ("最大压降", "max_drop", "V", 100.0),
+            ("目标电压",   "target_v",    "V", 220.00, "0~300V"),
+            ("每档压降",   "step_v",      "V",   3.50, "1~20V (运行时动态)"),
+            ("死区上限",   "deadband_u",  "V",   3.50, "0~20V (运行时=动态压差)"),
+            ("死区下限",   "deadband_l",  "V",   3.50, "0~20V (运行时=动态压差)"),
+            ("最大压降",   "max_drop",    "V",  35.00, "5~50V"),
         ]
 
         self.param_entries = {}
         self.param_labels = {}
 
-        for i, (label, key, unit, div) in enumerate(params):
+        for i, (label, key, unit, default, range_hint) in enumerate(params):
             row = tk.Frame(inner, bg=C_FRAME_BG)
             row.pack(fill=tk.X, pady=2)
 
@@ -438,7 +457,11 @@ class SiliconChainMonitor:
             self.param_entries[key] = entry
 
             tk.Label(row, text=unit, bg=C_FRAME_BG,
-                     font=("Microsoft YaHei", 9)).pack(side=tk.LEFT, padx=(0, 8))
+                     font=("Microsoft YaHei", 9)).pack(side=tk.LEFT, padx=(0, 4))
+
+            # 范围+默认值提示
+            tk.Label(row, text=f"[{range_hint}] 默认{default:.2f}", bg=C_FRAME_BG,
+                     font=("Microsoft YaHei", 7), fg="#AAA").pack(side=tk.LEFT, padx=(0, 6))
 
             lbl_current = tk.Label(row, text="(当前: --)", bg=C_FRAME_BG,
                                    font=("Consolas", 9), fg="#888", width=16, anchor=tk.W)
@@ -457,6 +480,49 @@ class SiliconChainMonitor:
                    command=self._read_all_params).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_row, text=" 写入全部参数 ", style="Action.TButton",
                    command=self._write_all_params).pack(side=tk.LEFT, padx=4)
+
+        # --- 电压校准区（万用表实测→自动计算系数） ---
+        cal_sep = ttk.Separator(inner, orient=tk.HORIZONTAL)
+        cal_sep.pack(fill=tk.X, pady=(10, 4))
+
+        tk.Label(inner, text="🔧 电压校准 (万用表实测 → 自动修正系数)", bg=C_FRAME_BG,
+                 font=("Microsoft YaHei", 9, "bold"), fg=C_ACCENT).pack(anchor=tk.W, pady=(0, 4))
+
+        self.cal_entries = {}   # 实测电压输入框
+        self.cal_info_labels = {}  # 当前读数+系数信息
+
+        cal_config = [
+            ("hm_cal", "HM合母", REG_HM_VOLT, REG_HM_CAL),
+            ("km_cal", "KM控母", REG_KM_VOLT, REG_KM_CAL),
+        ]
+
+        for cal_key, cal_name, reg_volt, reg_cal in cal_config:
+            cal_row = tk.Frame(inner, bg=C_FRAME_BG)
+            cal_row.pack(fill=tk.X, pady=3)
+
+            tk.Label(cal_row, text=f"{cal_name}:", width=8, anchor=tk.W,
+                     bg=C_FRAME_BG, font=("Microsoft YaHei", 9, "bold")).pack(side=tk.LEFT)
+
+            # 当前读数 + 系数
+            info_lbl = tk.Label(cal_row, text="读数: --V | 系数: --", bg=C_FRAME_BG,
+                               font=("Consolas", 9), fg="#555", width=32, anchor=tk.W)
+            info_lbl.pack(side=tk.LEFT, padx=4)
+            self.cal_info_labels[cal_key] = info_lbl
+
+            tk.Label(cal_row, text="实测:", bg=C_FRAME_BG,
+                     font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
+
+            entry = ttk.Entry(cal_row, width=8, font=("Consolas", 11))
+            entry.pack(side=tk.LEFT, padx=4)
+            self.cal_entries[cal_key] = entry
+            # 绑定回车键触发校准
+            entry.bind("<Return>", lambda e, k=cal_key: self._auto_calibrate(k))
+
+            ttk.Button(cal_row, text="一键校准", style="Action.TButton",
+                       command=lambda k=cal_key: self._auto_calibrate(k)).pack(side=tk.LEFT, padx=2)
+
+            tk.Label(cal_row, text="V", bg=C_FRAME_BG,
+                     font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
 
     def _build_log_frame(self):
         """日志区域"""
@@ -610,7 +676,7 @@ class SiliconChainMonitor:
     # ---------- 后台轮询 ----------
 
     def _poll_loop(self):
-        """后台轮询线程：每1秒读取监测数据"""
+        """后台轮询：每秒刷新 IO状态 + 监测数据(含动态压差)"""
         while not self._poll_event.is_set():
             if self.auto_refresh.get():
                 try:
@@ -628,7 +694,9 @@ class SiliconChainMonitor:
     # ---------- 输出操控 ----------
 
     def _toggle_output(self, idx):
-        """点击切换输出状态 — 读写寄存器12"""
+        """点击切换输出状态 — 读写寄存器12（报警/备用不可切换）"""
+        if idx in (0, 1, 5):
+            return  # Y0=报警, Y1/Y5=备用，禁止手动切换
         if not self.connected:
             self._log("请先连接设备", "warn")
             self.root.after(0, self._update_io_ui)
@@ -708,13 +776,16 @@ class SiliconChainMonitor:
             pass  # 轮询中的错误静默处理
 
     def _read_monitor_data(self):
-        """读取监测数据"""
+        """读取监测数据（寄存器20~25）"""
         try:
-            vals = self._safe_read_range(REG_HM_VOLT, 4)
+            vals = self._safe_read_range(REG_HM_VOLT, 6)
             self.data['hm_volt'] = vals[0]
             self.data['km_volt'] = vals[1]
             self.data['gear'] = vals[2]
             self.data['alarm'] = vals[3]
+            # 目标电压 (24) + 动态每档压降 (25) 用于计算显示
+            self.data['target_v'] = vals[4]
+            self.data['step_v'] = vals[5]
             # 控制模式 (寄存器28)
             self.data['ctrl_mode'] = self._safe_read(REG_CTRL_MODE)
             self.root.after(0, self._update_monitor_ui)
@@ -731,6 +802,10 @@ class SiliconChainMonitor:
             self.data['deadband_l'] = vals[3]
             self.data['ctrl_mode'] = vals[4]
             self.data['max_drop'] = vals[5]
+            # 读取校准系数（寄存器31~32）
+            cal_vals = self._safe_read_range(REG_HM_CAL, 2)
+            self.data['hm_cal'] = cal_vals[0]
+            self.data['km_cal'] = cal_vals[1]
             self.root.after(0, self._update_params_ui)
             self._log("全部参数读取完成", "rx")
         except Exception as e:
@@ -869,19 +944,23 @@ class SiliconChainMonitor:
 
         mode = self.data.get('ctrl_mode')
         if mode is not None:
-            self.combo_mode.set("自动调压" if mode == 0 else "手动控制")
+            mode_map = {0: "强制自动", 1: "强制手动", 2: "跟随X0硬件"}
+            self.combo_mode.set(mode_map.get(mode, ""))
+            # 设备实际生效模式（寄存器28=2时由X0决定）
+            effective = "(自动)" if mode == 0 else ("(手动)" if mode == 1 else "(由X0决定)")
             self.lbl_dev_mode.config(
-                text="(当前: X0={})".format("高" if mode == 1 else "低"),
-                fg=C_OK if mode == 0 else C_ALARM)
+                text=f"生效: {effective}",
+                fg=C_OK if mode in (0, 2) else C_ALARM)
         else:
             self.combo_mode.set("")
 
     def _on_mode_change(self, event=None):
-        """控制模式切换 — 写寄存器28"""
+        """控制模式切换 — 写寄存器28 (0=强制自动, 1=强制手动, 2=跟随X0)"""
         if not self.connected:
             return
         sel = self.combo_mode.get()
-        new_mode = 1 if sel == "手动控制" else 0
+        mode_map = {"强制自动": 0, "强制手动": 1, "跟随X0硬件": 2}
+        new_mode = mode_map.get(sel, 2)
         try:
             self._safe_write(REG_CTRL_MODE, new_mode)
             self.data['ctrl_mode'] = new_mode
@@ -918,6 +997,9 @@ class SiliconChainMonitor:
             cb.configure(bg=color, selectcolor=C_ON,
                         activebackground=color)
             self.io_output_vars[i].set(state)
+            # 同步更新引脚备注颜色
+            if i in self.io_output_notes:
+                self.io_output_notes[i].configure(bg=color)
 
     def _update_monitor_ui(self):
         """更新监测数据显示"""
@@ -958,17 +1040,15 @@ class SiliconChainMonitor:
         else:
             self.lbl_alarm.config(text="--")
 
-        # 控制模式
-        mode = self.data.get('ctrl_mode')
-        if mode is not None:
-            self.lbl_ctrl_mode.config(
-                text="自动" if mode == 0 else "手动",
-                fg=C_OK if mode == 0 else C_ALARM)
+        # 控制模式 — 已在设备信息面板显示，此处复用为"目标电压"
+        target = self.data.get('target_v')
+        if target is not None:
+            self.lbl_target_v_gui.config(text=f"{target / 100:.2f}")
         else:
-            self.lbl_ctrl_mode.config(text="--")
+            self.lbl_target_v_gui.config(text="--")
 
     def _update_drop_bar(self, gear):
-        """档位可视化 — 仅G0~G7标签，当前档位高亮"""
+        """档位可视化 — 8段显示，当前档位高亮，标注降压值"""
         self.canvas_drop.delete("all")
         w = self.canvas_drop.winfo_width()
         if w < 50:
@@ -977,23 +1057,39 @@ class SiliconChainMonitor:
         bar_h = 36
         seg_w = (w - 4) / 8
 
+        # 获取当前动态每档压降（如有）
+        step_v = self.data.get('step_v')
+        if step_v is not None:
+            step_str = f"(动态≈{step_v/100:.1f}V/档)"
+        else:
+            step_str = ""
+
         for g in range(8):
             x1 = 2 + g * seg_w
             x2 = 2 + (g + 1) * seg_w - 2
+            drop = {0: 35, 1: 30, 2: 25, 3: 20, 4: 15, 5: 10, 6: 5, 7: 0}[g]
             if g == gear:
-                fill = "#00CC33"   # 高亮绿
+                fill = "#00CC33"
                 text_color = "white"
                 font_weight = "bold"
+                label = f"G{g} ↓{drop}V"
             else:
                 fill = "#E8ECF0"
                 text_color = "#AAA"
                 font_weight = "normal"
+                label = f"G{g}"
             self.canvas_drop.create_rectangle(x1, 2, x2, bar_h - 1,
                                               fill=fill, outline="")
             self.canvas_drop.create_text((x1 + x2) / 2, bar_h / 2,
-                                         text=f"G{g}",
-                                         font=("Consolas", 11, font_weight),
+                                         text=label,
+                                         font=("Consolas", 9, font_weight),
                                          fill=text_color)
+
+        # 底部标注动态压差
+        if step_str:
+            self.canvas_drop.create_text(w / 2, bar_h, text=step_str,
+                                         font=("Microsoft YaHei", 7), fill="#888",
+                                         anchor=tk.S)
 
     def _update_params_ui(self):
         """更新参数显示"""
@@ -1005,6 +1101,9 @@ class SiliconChainMonitor:
             "max_drop":   (REG_MAX_DROP,   "max_drop"),
         }
 
+        # 同时更新校准系数显示
+        self._update_cal_ui()
+
         for key, (addr, dkey) in param_map.items():
             raw = self.data.get(dkey)
             if raw is not None:
@@ -1015,6 +1114,76 @@ class SiliconChainMonitor:
                 if not self.root.focus_get() or self.root.focus_get() != entry:
                     entry.delete(0, tk.END)
                     entry.insert(0, f"{val:.2f}")
+
+    # ---------- 电压校准 ----------
+
+    def _auto_calibrate(self, key):
+        """一键校准：根据万用表实测电压，自动计算并写入校准系数"""
+        if not self.connected:
+            messagebox.showwarning("警告", "请先连接设备")
+            return
+
+        try:
+            measured = float(self.cal_entries[key].get().strip())
+        except ValueError:
+            messagebox.showwarning("输入错误", "请输入有效的实测电压值 (如 220.00)")
+            return
+
+        if key == "hm_cal":
+            reg_volt, reg_cal, name = REG_HM_VOLT, REG_HM_CAL, "HM"
+        else:
+            reg_volt, reg_cal, name = REG_KM_VOLT, REG_KM_CAL, "KM"
+
+        try:
+            current_raw = self._safe_read(reg_volt)    # 当前显示值×100
+            current_cal = self._safe_read(reg_cal)     # 当前校准系数
+        except Exception as e:
+            self._log(f"读取{name}校准数据失败: {e}", "err")
+            return
+
+        if current_raw == 0:
+            self._log(f"{name}: 当前电压读数为0，无法校准（请检查模拟量输入）", "err")
+            return
+        if current_cal == 0:
+            self._log(f"{name}: 当前校准系数为0，异常！", "err")
+            return
+
+        # 核心公式：新系数 = 旧系数 × (实测值 / 显示值)
+        # displayed = current_raw / 100, measured_x100 = int(measured * 100)
+        new_cal = int(current_cal * int(measured * 100) / current_raw)
+
+        if new_cal < 100 or new_cal > 65535:
+            self._log(f"{name}: 计算得系数={new_cal}，超出合理范围，校准取消", "err")
+            return
+
+        try:
+            self._safe_write(reg_cal, new_cal)
+            self.data[key] = new_cal
+            self._log(f"✓ {name}校准完成: 实测{measured:.2f}V, 系数 {current_cal}→{new_cal} "
+                     f"(显示{current_raw/100:.2f}V→{measured:.2f}V)", "ok")
+            # 立即刷新显示
+            self.root.after(300, self._read_monitor_data)
+            self.root.after(500, self._read_all_params)
+        except Exception as e:
+            self._log(f"写入{name}校准失败: {e}", "err")
+
+    def _update_cal_ui(self):
+        """更新校准区域显示（当前读数 + 当前系数）"""
+        cal_config = [
+            ("hm_cal", "hm_volt", "hm_cal", "HM"),
+            ("km_cal", "km_volt", "km_cal", "KM"),
+        ]
+        for cal_key, volt_key, data_key, name in cal_config:
+            volt_raw = self.data.get(volt_key)
+            cal_raw = self.data.get(data_key)
+            lbl = self.cal_info_labels.get(cal_key)
+            if lbl:
+                if volt_raw is not None and cal_raw is not None:
+                    lbl.config(text=f"读数: {volt_raw/100:.2f}V | 系数: {cal_raw/100:.2f}")
+                elif volt_raw is not None:
+                    lbl.config(text=f"读数: {volt_raw/100:.2f}V | 系数: --")
+                else:
+                    lbl.config(text="读数: --V | 系数: --")
 
     # ---------- 日志 & 状态 ----------
 
