@@ -521,6 +521,9 @@ class SiliconChainMonitor:
             ttk.Button(cal_row, text="一键校准", style="Action.TButton",
                        command=lambda k=cal_key: self._auto_calibrate(k)).pack(side=tk.LEFT, padx=2)
 
+            ttk.Button(cal_row, text="重置默认", style="Small.TButton",
+                       command=lambda k=cal_key: self._reset_calibration(k)).pack(side=tk.LEFT, padx=2)
+
             tk.Label(cal_row, text="V", bg=C_FRAME_BG,
                      font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
 
@@ -1117,6 +1120,25 @@ class SiliconChainMonitor:
 
     # ---------- 电压校准 ----------
 
+    def _reset_calibration(self, key):
+        """重置校准系数为默认值9100"""
+        if not self.connected:
+            messagebox.showwarning("警告", "请先连接设备")
+            return
+        if key == "hm_cal":
+            reg_cal, name = REG_HM_CAL, "HM"
+        else:
+            reg_cal, name = REG_KM_CAL, "KM"
+        try:
+            self._safe_write(reg_cal, 9100)
+            self._safe_write(REG_PARAM_OP, OP_SAVE)
+            self.data[key] = 9100
+            self._log(f"✓ {name}校准系数已重置为9100(91.00)，已保存", "ok")
+            self.root.after(600, self._read_monitor_data)
+            self.root.after(800, self._read_all_params)
+        except Exception as e:
+            self._log(f"重置{name}校准失败: {e}", "err")
+
     def _auto_calibrate(self, key):
         """一键校准：根据万用表实测电压，自动计算并写入校准系数"""
         if not self.connected:
@@ -1152,8 +1174,9 @@ class SiliconChainMonitor:
         # displayed = current_raw / 100, measured_x100 = int(measured * 100)
         new_cal = int(current_cal * int(measured * 100) / current_raw)
 
-        if new_cal < 100 or new_cal > 65535:
-            self._log(f"{name}: 计算得系数={new_cal}，超出合理范围，校准取消", "err")
+        if new_cal < 1000 or new_cal > 20000:
+            self._log(f"{name}: 计算得系数={new_cal}，超出合理范围(1000~20000)，校准取消", "err")
+            self._log(f"  → 当前系数={current_cal}，请先手动写入一个合理系数(如9100)再校准", "warn")
             return
 
         try:
