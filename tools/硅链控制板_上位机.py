@@ -1174,9 +1174,8 @@ class SiliconChainMonitor:
         # displayed = current_raw / 100, measured_x100 = int(measured * 100)
         new_cal = int(current_cal * int(measured * 100) / current_raw)
 
-        if new_cal < 1000 or new_cal > 20000:
-            self._log(f"{name}: 计算得系数={new_cal}，超出合理范围(1000~20000)，校准取消", "err")
-            self._log(f"  → 当前系数={current_cal}，请先手动写入一个合理系数(如9100)再校准", "warn")
+        if new_cal <= 0:
+            self._log(f"{name}: 计算得系数={new_cal}，异常，校准取消", "err")
             return
 
         try:

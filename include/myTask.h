@@ -185,7 +185,7 @@ static inline uint16_t ClampParam(uint16_t val, uint16_t minVal, uint16_t maxVal
  *        - 每档压降: 1.00~20.00V（100~2000）
  *        - 死区:     0~20.00V（0~2000），PLC: D594/D596∈[0,1000]
  *        - 最大压降: 5.00~50.00V（500~5000），220V系统≤35V，110V系统≤21V
- *        - 校准系数: 10.00~200.00（1000~20000），默认91.00
+ *        - 校准系数: 无范围限制，默认91.00
  *        - 控制模式: 0=强制自动, 1=强制手动, 2=跟随X0硬件开关（默认）
  *        - 校验模式: 0=无校验, 1=偶校验, 2=奇校验
  */
@@ -230,11 +230,8 @@ static void Save_ParameterFromRegister()
     val = myModbusRTU.hreg(30);
     myPar.ParityMode     = ClampParam(val, 0, 2, myPar.ParityMode);
 
-    val = myModbusRTU.hreg(31);
-    myPar.HM_Calibration = ClampParam(val, 1000, 20000, myPar.HM_Calibration);
-
-    val = myModbusRTU.hreg(32);
-    myPar.KM_Calibration = ClampParam(val, 1000, 20000, myPar.KM_Calibration);
+    myPar.HM_Calibration = myModbusRTU.hreg(31);
+    myPar.KM_Calibration = myModbusRTU.hreg(32);
 
     Save_Parameter();
 }
