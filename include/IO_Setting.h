@@ -122,10 +122,12 @@ static void SetGearOutput(uint8_t gear)
 //         = (ADC × 4096 × 32 × calibration) / 720874000
 //
 // 使用uint64_t中间变量避免Cortex-M3无FPU时的软浮点开销
-static uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
+// 返回值uint32_t：防止极端校准系数下中间结果溢出uint16截断（恶性循环Bug）
+static uint32_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
 {
     if (adcValue <= 0) return 0;
-    return (uint16_t)(((uint64_t)adcValue * 4096 * 32 * calibration) / 720874000ULL);
+    uint64_t raw = ((uint64_t)adcValue * 4096 * 32 * calibration) / 720874000ULL;
+    return (uint32_t)(raw > 65535 ? 65535 : raw); // 饱和钳位，防止溢出
 }
 
 

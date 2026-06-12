@@ -125,10 +125,10 @@ static void IICTask(void *pvParameters)
             myModbusRTU.setHreg(18, myAI.AI3);
 
             // 硅链：ADC原始值换算为实际电压（×100），写入寄存器20/21
-            uint16_t hmVoltage = ADCToVoltage(myAI.AI0, myPar.HM_Calibration);
-            uint16_t kmVoltage = ADCToVoltage(myAI.AI1, myPar.KM_Calibration);
-            myModbusRTU.setHreg(20, hmVoltage);
-            myModbusRTU.setHreg(21, kmVoltage);
+            uint32_t hmVoltage = ADCToVoltage(myAI.AI0, myPar.HM_Calibration);
+            uint32_t kmVoltage = ADCToVoltage(myAI.AI1, myPar.KM_Calibration);
+            myModbusRTU.setHreg(20, (uint16_t)(hmVoltage > 65535 ? 65535 : hmVoltage));
+            myModbusRTU.setHreg(21, (uint16_t)(kmVoltage > 65535 ? 65535 : kmVoltage));
 
             // 实时打印采样值
             ShowMsg("[AI] raw0=" + String(myAI.AI0) + " raw1=" + String(myAI.AI1) +
