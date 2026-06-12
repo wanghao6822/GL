@@ -1159,11 +1159,13 @@ class SiliconChainMonitor:
         try:
             self._safe_write(reg_cal, new_cal)
             self.data[key] = new_cal
+            # 自动触发EEPROM保存，使校准系数立即生效
+            self._safe_write(REG_PARAM_OP, OP_SAVE)
             self._log(f"✓ {name}校准完成: 实测{measured:.2f}V, 系数 {current_cal}→{new_cal} "
-                     f"(显示{current_raw/100:.2f}V→{measured:.2f}V)", "ok")
-            # 立即刷新显示
-            self.root.after(300, self._read_monitor_data)
-            self.root.after(500, self._read_all_params)
+                     f"(显示{current_raw/100:.2f}V→{measured:.2f}V)  已保存到EEPROM", "ok")
+            # 立即刷新显示（延迟需足够让Save_ParameterFromRegister执行完）
+            self.root.after(600, self._read_monitor_data)
+            self.root.after(800, self._read_all_params)
         except Exception as e:
             self._log(f"写入{name}校准失败: {e}", "err")
 
