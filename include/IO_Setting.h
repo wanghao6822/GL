@@ -111,16 +111,21 @@ static void SetGearOutput(uint8_t gear)
 }
 
 // ADC原始值→实际电压（放大100倍存储，如24300=243.00V）
-// calibration: 分压比×100，默认9100(分压比91:1)，可通过Modbus寄存器31/32在线校准
-// 公式: voltage = adcValue × 4.096V × calibration / (32767 × 100)
-//       = (adcValue × 4096 × calibration) / 32767000
+// calibration: 高压侧分压比×100，默认9100(91:1)，可通过Modbus寄存器31/32在线校准
+//
+// 信号链路: 高压直流 → 电阻分压(91:1) → EXAI端子
+//           → R64/R66(10kΩ)+R65/R67(22kΩ)分压 → LM358跟随 → ADS1115
+//
+// 完整公式（含运放前端1.4545倍逆算）:
+//   V_bus = ADC × 4.096/32767 × 32/22 × calibration/100
+//         = (ADC × 4096 × 32 × calibration) / (32767000 × 22)
+//         = (ADC × 4096 × 32 × calibration) / 720874000
+//
 // 使用uint64_t中间变量避免Cortex-M3无FPU时的软浮点开销
 static uint16_t ADCToVoltage(int16_t adcValue, uint16_t calibration)
 {
     if (adcValue <= 0) return 0;
-    // stored = adcValue × 4.096 × calibration / 32767
-    //        = (adcValue × 4096 × calibration) / 32767000
-    return (uint16_t)(((uint64_t)adcValue * 4096 * calibration) / 32767000);
+    return (uint16_t)(((uint64_t)adcValue * 4096 * 32 * calibration) / 720874000ULL);
 }
 
 
