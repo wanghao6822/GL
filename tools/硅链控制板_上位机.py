@@ -78,7 +78,7 @@ PARITY_OPTIONS = ["奇校验 (8O1)", "偶校验 (8E1)", "无校验 (8N2)"]
 PARITY_VALUES  = {"奇校验 (8O1)": "O", "偶校验 (8E1)": "E", "无校验 (8N2)": "N"}
 
 # 输入/输出通道名称
-INPUT_NAMES  = [f"X{i}" for i in range(8)]
+INPUT_NAMES  = ["X0🔄", "X1", "X2", "X3", "X4", "X5", "X6", "X7"]
 OUTPUT_NAMES = ["报警", "备用", "一级硅链", "二级硅链", "三级硅链", "备用"]
 OUTPUT_PINS  = ["Y0", "Y1", "Y2", "Y3", "Y4", "Y5"]  # 引脚备注
 
@@ -309,10 +309,31 @@ class SiliconChainMonitor:
         input_frame = tk.Frame(inner, bg=C_FRAME_BG)
         input_frame.pack(fill=tk.X)
         self.io_inputs = {}
-        for i, name in enumerate(INPUT_NAMES):
+
+        # X0 特殊显示：手动/自动切换动画框
+        x0_container = tk.Frame(input_frame, bg=C_FRAME_BG)
+        x0_container.pack(side=tk.LEFT, padx=2)
+
+        x0_toggle = tk.Frame(x0_container, bg=C_FRAME_BG, relief=tk.RIDGE, bd=1)
+        x0_toggle.pack()
+
+        self.x0_auto_lbl = tk.Label(x0_toggle, text="自动", bg=C_OFF, fg="white",
+                                     font=("Microsoft YaHei", 8, "bold"), width=4)
+        self.x0_auto_lbl.pack(side=tk.LEFT)
+
+        self.x0_manual_lbl = tk.Label(x0_toggle, text="手动", bg=C_OFF, fg="white",
+                                       font=("Microsoft YaHei", 8, "bold"), width=4)
+        self.x0_manual_lbl.pack(side=tk.LEFT)
+
+        tk.Label(x0_container, text="X0", bg=C_FRAME_BG,
+                 font=("Consolas", 7, "bold"), fg=C_ACCENT).pack()
+        self.io_inputs[0] = (x0_container, None)
+
+        # X1~X7 保持原有样式
+        for i in range(1, 8):
             frame_io = tk.Frame(input_frame, bg=C_OFF, relief=tk.RAISED, bd=1)
             frame_io.pack(side=tk.LEFT, padx=1, ipadx=4, ipady=1)
-            lbl = tk.Label(frame_io, text=name, bg=C_OFF, fg="white",
+            lbl = tk.Label(frame_io, text=INPUT_NAMES[i], bg=C_OFF, fg="white",
                            font=("Consolas", 8, "bold"), width=3)
             lbl.pack()
             self.io_inputs[i] = (frame_io, lbl)
@@ -697,9 +718,14 @@ class SiliconChainMonitor:
     # ---------- 输出操控 ----------
 
     def _toggle_output(self, idx):
-        """点击切换输出状态 — 读写寄存器12（报警/备用不可切换）"""
+        """点击切换输出状态 — 读写寄存器12（报警/备用不可切换，自动模式硅链锁定）"""
         if idx in (0, 1, 5):
             return  # Y0=报警, Y1/Y5=备用，禁止手动切换
+        # 自动模式下禁止手动操作硅链输出
+        if idx in (2, 3, 4) and self._is_effective_auto():
+            self._log("自动模式下硅链输出由固件控制，禁止手动切换", "warn")
+            self.root.after(0, self._update_io_ui)
+            return
         if not self.connected:
             self._log("请先连接设备", "warn")
             self.root.after(0, self._update_io_ui)
@@ -754,11 +780,15 @@ class SiliconChainMonitor:
             mode = self._safe_read(REG_CTRL_MODE)
             self.data['ctrl_mode'] = mode
 
+            # 同步读取输入状态（寄存器11），获取X0硬件电平用于模式判定
+            input_status = self._safe_read(REG_INPUT_STATUS)
+            self.data['input'] = input_status
+
             # 更新UI (在主线程)
             self.root.after(0, self._update_device_info_ui)
             self._log(f"设备信息读取完成 - 从站ID:{vals[0]} "
                       f"波特率:{BAUD_NAMES.get(vals[1], '?')} "
-                      f"滤波:{filt}ms 模式:{'自动' if mode == 0 else '手动'}", "rx")
+                      f"滤波:{filt}ms 模式:{mode} X0:{'闭合' if (input_status & 1) else '断开'}", "rx")
         except Exception as e:
             self._log(f"读取设备信息失败: {e}", "err")
 
@@ -949,11 +979,18 @@ class SiliconChainMonitor:
         if mode is not None:
             mode_map = {0: "强制自动", 1: "强制手动", 2: "跟随X0硬件"}
             self.combo_mode.set(mode_map.get(mode, ""))
-            # 设备实际生效模式（寄存器28=2时由X0决定）
-            effective = "(自动)" if mode == 0 else ("(手动)" if mode == 1 else "(由X0决定)")
-            self.lbl_dev_mode.config(
-                text=f"生效: {effective}",
-                fg=C_OK if mode in (0, 2) else C_ALARM)
+            # 设备实际生效模式（寄存器28=2时由X0硬件电平决定）
+            x0_state = (self.data.get('input', 0) >> 0) & 1  # 寄存器11 bit0: X0=1闭合→自动, X0=0断开→手动
+            if mode == 2:
+                effective = "(自动·X0闭合)" if x0_state else "(手动·X0断开)"
+                fg = C_OK if x0_state else C_ALARM
+            elif mode == 0:
+                effective = "(自动·强制)"
+                fg = C_OK
+            else:
+                effective = "(手动·强制)"
+                fg = C_ALARM
+            self.lbl_dev_mode.config(text=f"生效: {effective}", fg=fg)
         else:
             self.combo_mode.set("")
 
@@ -977,7 +1014,18 @@ class SiliconChainMonitor:
         """更新IO状态"""
         # 数字输入
         inp = self.data.get('input', 0)
-        for i in range(8):
+
+        # X0 特殊动画：手动/自动切换
+        x0_state = (inp >> 0) & 1
+        if x0_state:
+            self.x0_auto_lbl.configure(bg=C_ON)
+            self.x0_manual_lbl.configure(bg=C_OFF)
+        else:
+            self.x0_auto_lbl.configure(bg=C_OFF)
+            self.x0_manual_lbl.configure(bg=C_ALARM)
+
+        # X1~X7 保持原有样式
+        for i in range(1, 8):
             frame, lbl = self.io_inputs[i]
             state = (inp >> i) & 1
             color = C_ON if state else C_OFF
@@ -992,6 +1040,7 @@ class SiliconChainMonitor:
 
         # 数字输出 (勾选框)
         out = self.data.get('output', 0)
+        is_auto = self._is_effective_auto()
         for i in range(6):
             frame, cb = self.io_outputs[i]
             state = (out >> i) & 1
@@ -1000,9 +1049,30 @@ class SiliconChainMonitor:
             cb.configure(bg=color, selectcolor=C_ON,
                         activebackground=color)
             self.io_output_vars[i].set(state)
+            # 自动模式下锁定硅链输出 (Y2/Y3/Y4 = idx 2/3/4)
+            if i in (2, 3, 4):
+                if is_auto:
+                    cb.configure(state=tk.DISABLED)
+                    self.io_output_notes[i].configure(text=OUTPUT_PINS[i] + " 🔒")
+                else:
+                    cb.configure(state=tk.NORMAL)
+                    self.io_output_notes[i].configure(text=OUTPUT_PINS[i])
             # 同步更新引脚备注颜色
             if i in self.io_output_notes:
                 self.io_output_notes[i].configure(bg=color)
+
+    def _is_effective_auto(self):
+        """判断当前生效模式是否为自动模式
+        返回 True=自动(固件控制硅链), False=手动(上位机控制)
+        """
+        mode = self.data.get('ctrl_mode', 2)
+        if mode == 0:
+            return True   # 强制自动
+        if mode == 1:
+            return False  # 强制手动
+        # mode == 2: 跟随X0硬件 — X0闭合=自动, X0断开=手动
+        x0_state = (self.data.get('input', 0) >> 0) & 1
+        return x0_state == 1
 
     def _update_monitor_ui(self):
         """更新监测数据显示"""
@@ -1051,7 +1121,7 @@ class SiliconChainMonitor:
             self.lbl_target_v_gui.config(text="--")
 
     def _update_drop_bar(self, gear):
-        """档位可视化 — 8段显示，当前档位高亮，标注降压值"""
+        """档位可视化 — 8段显示，当前档位高亮，降压值=动态每挡压差×(7-档位)"""
         self.canvas_drop.delete("all")
         w = self.canvas_drop.winfo_width()
         if w < 50:
@@ -1060,27 +1130,26 @@ class SiliconChainMonitor:
         bar_h = 36
         seg_w = (w - 4) / 8
 
-        # 获取当前动态每档压降（如有）
+        # 动态每档压降（寄存器25，运行时固件自动学习）
         step_v = self.data.get('step_v')
-        if step_v is not None:
-            step_str = f"(动态≈{step_v/100:.1f}V/档)"
+        if step_v is not None and step_v > 0:
+            dyn_step = step_v  # ×100
         else:
-            step_str = ""
+            dyn_step = 350     # 默认 3.50V/档
 
         for g in range(8):
             x1 = 2 + g * seg_w
             x2 = 2 + (g + 1) * seg_w - 2
-            drop = {0: 35, 1: 30, 2: 25, 3: 20, 4: 15, 5: 10, 6: 5, 7: 0}[g]
+            drop = (7 - g) * dyn_step / 100.0  # 动态降压值(V)
             if g == gear:
                 fill = "#00CC33"
                 text_color = "white"
                 font_weight = "bold"
-                label = f"G{g} ↓{drop}V"
             else:
                 fill = "#E8ECF0"
-                text_color = "#AAA"
+                text_color = "#888"
                 font_weight = "normal"
-                label = f"G{g}"
+            label = f"G{g} ↓{drop:.1f}V"
             self.canvas_drop.create_rectangle(x1, 2, x2, bar_h - 1,
                                               fill=fill, outline="")
             self.canvas_drop.create_text((x1 + x2) / 2, bar_h / 2,
@@ -1088,11 +1157,11 @@ class SiliconChainMonitor:
                                          font=("Consolas", 9, font_weight),
                                          fill=text_color)
 
-        # 底部标注动态压差
-        if step_str:
-            self.canvas_drop.create_text(w / 2, bar_h, text=step_str,
-                                         font=("Microsoft YaHei", 7), fill="#888",
-                                         anchor=tk.S)
+        # 底部标注动态压差来源
+        step_str = f"动态≈{dyn_step/100:.2f}V/档 (寄存器25)"
+        self.canvas_drop.create_text(w / 2, bar_h, text=step_str,
+                                     font=("Microsoft YaHei", 7), fill="#888",
+                                     anchor=tk.S)
 
     def _update_params_ui(self):
         """更新参数显示"""
