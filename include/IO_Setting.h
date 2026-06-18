@@ -143,6 +143,12 @@ static void pinMode_OutSetting(uint32_t ulPin)
  */
 static void GPIO_Init()
 {
+    // ★ 必须最先执行：禁用JTAG，保留SWD调试接口
+    // PA15(JTDI)→Y0报警, PB3(JTDO)→Y1, PB4(JNTRST)→Y2硅链 均被JTAG占用
+    // 禁用JTAG后这三个引脚才能正常作为GPIO使用
+    // AFIO->MAPR SWJ_CFG[2:0]=010: JTAG-DP禁用, SW-DP保留(仍可用ST-Link调试)
+    AFIO->MAPR = (AFIO->MAPR & ~(7UL << 24)) | (2UL << 24);
+
     ShowMsg("GPIO_Initizing", true);
     /*拨码开关初始化*/
     pinMode(SW_B1, INPUT_PULLUP);
