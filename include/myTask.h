@@ -388,7 +388,7 @@ static void MainTask(void *pvParameters)
                         if (voltDrop > 0)
                         {
                             dynStepVoltage = (uint16_t)(voltDrop / gearDelta);
-                            if (dynStepVoltage < 10) dynStepVoltage = myPar.StepVoltage;
+                            if (dynStepVoltage < 100 || dynStepVoltage > 500) dynStepVoltage = 350;
                             dynDeadBand = dynStepVoltage;
                         }
                     }
