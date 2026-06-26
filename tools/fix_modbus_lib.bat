@@ -1,47 +1,58 @@
 @echo off
+setlocal enabledelapsedexpansion
 title Fix Modbus Library
-echo.
-echo ============================================
-echo   Fix Modbus Library (private -> public)
-echo ============================================
-echo.
-echo This fixes Modbus-Arduino so RTU and TCP
-echo can share register memory.
 
-REM Find Modbus.h in PlatformIO cache
-set "MODBUS_H="
+echo.
+echo ============================================
+echo   Fix Modbus Library
+echo ============================================
+echo.
+echo This replaces Modbus-Arduino/src/Modbus.h
+echo with a pre-patched version (private -> public)
+echo.
+
+set "PATCHED=%~dp0Modbus_Patched.h"
+
+if not exist "%PATCHED%" (
+    echo [FAIL] Modbus_Patched.h not found in tools\
+    pause
+    exit /b 1
+)
+
+set "COUNT=0"
+
+REM Fix all copies in PlatformIO cache
 for /r "%USERPROFILE%\.platformio" %%f in (Modbus.h) do (
-    findstr /m "_regs_head" "%%f" >nul 2>&1
-    if !errorlevel! equ 0 set "MODBUS_H=%%f"
+    findstr /c:"_regs_head" "%%f" >nul 2>&1
+    if !errorlevel! equ 0 (
+        findstr /c:"public:  // patched" "%%f" >nul 2>&1
+        if !errorlevel! neq 0 (
+            echo Patching: %%~nxf
+            copy /y "%PATCHED%" "%%f" >nul
+            set /a COUNT+=1
+        )
+    )
 )
 
-if "!MODBUS_H!"=="" (
-    echo [FAIL] Modbus.h not found.
-    echo Run "pio run" first to download libraries.
-    goto end
+REM Fix all copies in project .pio folder
+for /r "%~dp0..\.pio" %%f in (Modbus.h) do (
+    findstr /c:"_regs_head" "%%f" >nul 2>&1
+    if !errorlevel! equ 0 (
+        findstr /c:"public:  // patched" "%%f" >nul 2>&1
+        if !errorlevel! neq 0 (
+            echo Patching: %%~nxf
+            copy /y "%PATCHED%" "%%f" >nul
+            set /a COUNT+=1
+        )
+    )
 )
 
-echo Found: !MODBUS_H!
-
-REM Check if fix needed
-findstr /c:"public:" "!MODBUS_H!" >nul 2>&1
-if errorlevel 1 goto needfix
-
-findstr /c:"TRegister *_regs_head" "!MODBUS_H!" >nul 2>&1
-if errorlevel 1 goto needfix
-
-echo [OK] Already patched - no fix needed
-goto end
-
-:needfix
-echo [>>] Patching...
-REM Backup original
-copy "!MODBUS_H!" "!MODBUS_H!.bak" >nul
-
-REM PowerShell: replace private: before _regs_head with public:
-powershell -NoProfile -Command ^
-  "$f='!MODBUS_H!'; $c=Get-Content $f -Raw; $c=$c -replace 'private(\s*:\s*\r?\n\s*)(TRegister\s+\*_regs_head)', 'public$$1$$2'; [IO.File]::WriteAllText($f, $c); Write-Host '[OK] Done'"
-
-:end
 echo.
+if !COUNT! equ 0 (
+    echo [OK] Already patched - no changes needed.
+) else (
+    echo [OK] Patched !COUNT! file(s).
+)
+echo.
+echo Now rebuild in VSCode (Ctrl+Alt+B).
 pause
